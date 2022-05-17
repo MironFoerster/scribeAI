@@ -1,6 +1,7 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 tfd = tfp.distributions
+from window import Layer as WindowLayer
 
 class Model(tf.keras.Model):
     def __init__(self, num_lstms=3, hidden_size=256):
@@ -9,6 +10,7 @@ class Model(tf.keras.Model):
         self.k_components = 20
         self.bias = 1
         self.hidden_size = hidden_size
+        self.window_layer = WindowLayer(k_gaussians=15)
         self.lstms = []
         self.dense_outs = []
         for i in range(num_lstms):
@@ -25,9 +27,14 @@ class Model(tf.keras.Model):
     def call(self, inputs):
         # inputs.shape: [batch_size, (timesteps)/None, ]
         y = tf.zeros_like(self.out_bias)
-        hidden_state = inputs
+        hidden_state = inputs[0]
+        char_seq = inputs[1]
+
 
         for layer in range(self.num_lstms):
+            if layer == 1:  # second layer
+                # compute window
+                self.window_layer((hidden_state, char_seq))
             hidden_state = self.lstms[layer](hidden_state)
             y += self.dense_outs[layer](hidden_state)
 

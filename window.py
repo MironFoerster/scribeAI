@@ -16,6 +16,8 @@ class Layer(tf.keras.layers.Layer):
         a, b, k = tf.split(parameters, num_or_size_splits=3, axis=2)
         # a/b/k.shape: [batch_size, num_timesteps, k_gaussians]
 
+        # TODO: preprocess a,b,k
+
         a = tf.expand_dims(a, axis=2)
         b = tf.expand_dims(b, axis=2)
         k = tf.expand_dims(k, axis=2)
