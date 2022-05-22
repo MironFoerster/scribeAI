@@ -1,7 +1,9 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 tfd = tfp.distributions
-from window import Layer as WindowLayer
+import window
+WindowLayer = window.Layer
+
 
 class Model(tf.keras.Model):
     def __init__(self, num_lstms=3, hidden_size=256):
@@ -11,37 +13,40 @@ class Model(tf.keras.Model):
         self.bias = 1
         self.hidden_size = hidden_size
         self.window_layer = WindowLayer(k_gaussians=15)
+        self.alphabet = "!'(),-./0123456789:?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         self.lstms = []
         self.dense_outs = []
         for i in range(num_lstms):
-            self.lstms.append(tf.keras.layers.LSTM(units=self.hidden_size,
+            units = self.hidden_size
+            if i == 1:  # second layer
+                units += len(self.alphabet)
+            self.lstms.append(tf.keras.layers.LSTM(units=units,
                                                    return_sequences=True,
-                                                   return_state=True,
+                                                   return_state=False,
                                                    stateful=True))
             self.dense_outs.append(tf.keras.layers.Dense(units=6*self.k_components+1,
                                                          use_bias=False))
 
         self.out_bias = tf.Variable(tf.zeros_initializer()(shape=[6*self.k_components+1], dtype=tf.float32))
 
-
     def call(self, inputs):
-        # inputs.shape: [batch_size, (timesteps)/None, ]
+        # wrong: inputs.shape: [batch_size, (timesteps)/None, ]
         y = tf.zeros_like(self.out_bias)
         hidden_state = inputs[0]
         char_seq = inputs[1]
-
-
         for layer in range(self.num_lstms):
             if layer == 1:  # second layer
                 # compute window
-                self.window_layer((hidden_state, char_seq))
+                w = self.window_layer((hidden_state, char_seq))
+                hidden_state = tf.concat([hidden_state, w], axis=-1)
             hidden_state = self.lstms[layer](hidden_state)
-            y += self.dense_outs[layer](hidden_state)
+            y = y + self.dense_outs[layer](hidden_state)
 
-        y += self.out_bias
+        y = y + self.out_bias
 
         # apply processing to bring certain parts of
         # outputs to desired numerical range
+
         y_pred = self.process_network_output(y)
         return y_pred
 
@@ -52,7 +57,7 @@ class Model(tf.keras.Model):
         # for later use as parameters for mixture density layer
 
         k = self.k_components
-        eos_probs = 1/(1+tf.exp(network_y[:, :, -1]))  # modified sigmoid
+        eos_probs = tf.expand_dims(1/(1+tf.exp(network_y[:, :, -1])), axis=-1)  # modified sigmoid
         component_weights = tf.nn.softmax(network_y[:, :, 0:k])  # softmax
         correlations = tf.tanh(network_y[:, :, k:2*k])  # tanh
         means = network_y[:, :, 2*k:4*k]  # no processing
@@ -61,8 +66,6 @@ class Model(tf.keras.Model):
         # concat to recreate shape
         processed_output = tf.concat([eos_probs, component_weights, correlations, means, std_devs], axis=2)
         return processed_output
-
-
 
 
 def covar_mat_from_corr_and_stddev(corrs, devs):
@@ -86,8 +89,11 @@ class Loss(tf.keras.losses.Loss):
         # y_true.shape: [batch_size, (num_timesteps), 3]
 
         k = int((y_pred.shape[2] - 1) / 6)
-        y_true = y_true.to_tensor()
-        y_pred = y_pred.to_tensor()
+        if isinstance(y_true, tf.RaggedTensor):
+            y_true = y_true.to_tensor()
+        if isinstance(y_pred, tf.RaggedTensor):
+            y_pred = y_pred.to_tensor()
+
         shape = y_pred.shape
 
         mixture = tfd.MixtureSameFamily(

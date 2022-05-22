@@ -8,7 +8,7 @@ examples = {}
 means = []
 
 read_path = "csv/write/"
-write_path = "records/train/"
+write_path = "datasets/test"
 
 # alphabet = "0123456789,.!?'():- ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 # alphabet = " !'(),-.0123456789:?ABCDEFGHIJKLMNOPQRSTUVWXYabcdefghijklmnopqrstuvwxyz"
@@ -36,6 +36,7 @@ for obj in read_dir:
 print(dict(sorted(char_dist.items(), key=lambda e: e[1])))
 
 print("".join(sorted(alphabet)))
+alphabet = "!'(),-./0123456789:?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 read_dir = os.scandir(read_path)
 for obj in read_dir:
@@ -54,34 +55,22 @@ for obj in read_dir:
                     prev_x = point["x"]
                     prev_y = point["y"]
 
-                strokes = tf.constant(strokes_list)
-                serialized_strokes = tf.io.serialize_tensor(strokes).numpy()
-                means.append(tf.reduce_mean(tf.math.abs(strokes[:, :2]), axis=0).numpy())
-
                 chars = line["text"].replace(" ", "")
                 indices = [alphabet.index(char) for char in chars]
-                one_hot_chars = tf.one_hot(indices, depth=len(alphabet))
-                serialized_one_hot_chars = tf.io.serialize_tensor(one_hot_chars).numpy()
-
-                # create features dictionary
-                feature = {
-                    "strokes": tf.train.Feature(bytes_list=tf.train.BytesList(value=[serialized_strokes])),
-                    "chars": tf.train.Feature(bytes_list=tf.train.BytesList(value=[serialized_one_hot_chars]))
-                }
-                # create example from features
-                example = tf.train.Example(features=tf.train.Features(feature=feature))
+                one_hot_chars = tf.one_hot(indices, depth=len(alphabet)).numpy()
 
                 if line["person"] not in examples.keys():
-                    examples[line["person"]] = []
+                    examples[line["person"]] = {"strokes": [], "chars": []}
 
-                examples[line["person"]].append(example.SerializeToString())
+                examples[line["person"]]["strokes"].append(strokes_list)
+                examples[line["person"]]["chars"].append(one_hot_chars)
 
-
-print(np.array(means).mean(axis=0))
 
 for person in examples.keys():
-    # write to personal records-file
-    filename = os.path.join(write_path, person + ".tfrecords")
-    with tf.io.TFRecordWriter(filename) as writer:
-        for example in examples[person]:
-            writer.write(example)
+    # write to personal dataset-file
+    examples[person]["strokes"] = tf.ragged.constant(examples[person]["strokes"], ragged_rank=1)
+    examples[person]["chars"] = tf.ragged.constant(examples[person]["chars"], ragged_rank=1)
+    dataset = tf.data.Dataset.from_tensor_slices(examples[person])
+    path = os.path.join(write_path, person+".ds")
+    tf.data.experimental.save(dataset, path)
+
