@@ -37,11 +37,19 @@ model.compile(optimizer='adam',
               metrics=['accuracy'],
               run_eagerly=True)
 
-log_dir = "logs/hw/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
+run_name = "initial"
+tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=os.path.join("logs", run_name),
+                                                      histogram_freq=1,
+                                                      update_freq=5)
+model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+    filepath=os.path.join("checkpoints", run_name),
+    save_weights_only=True,
+    verbose=1,
+    monitor="val_loss",
+    save_best_only=True)
 
-bucket_boundaries = [101, 201, 301, 401, 501, 601]
-batch_sizes = [32] * (len(bucket_boundaries) + 1)
+bucket_boundaries = [101, 201, 301, 401, 501, 601, 701, 801, 901, 1001, 1101]
+batch_sizes = [10] * (len(bucket_boundaries) + 1)
 
 train_batched = train_set.bucket_by_sequence_length(element_length_func=lambda x, y: tf.shape(x[0])[0],
                                                     bucket_boundaries=bucket_boundaries,
@@ -54,4 +62,4 @@ test_batched = test_set.bucket_by_sequence_length(element_length_func=lambda x, 
                                                   pad_to_bucket_boundary=True,
                                                   drop_remainder=True)
 
-model.fit(train_batched, epochs=10, validation_data=test_batched, callbacks=[tensorboard_callback])
+model.fit(train_batched, epochs=10, validation_data=test_batched, callbacks=[tensorboard_callback, model_checkpoint_callback], verbose=1)

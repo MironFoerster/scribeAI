@@ -2,7 +2,6 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 tfd = tfp.distributions
 import window
-WindowLayer = window.Layer
 
 
 class Model(tf.keras.Model):
@@ -12,7 +11,7 @@ class Model(tf.keras.Model):
         self.k_components = 20
         self.bias = 1
         self.hidden_size = hidden_size
-        self.window_layer = WindowLayer(k_gaussians=15)
+        self.window_layer = window.AttentionLayer()
         self.alphabet = "!'(),-./0123456789:?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         self.lstms = []
         self.dense_outs = []
