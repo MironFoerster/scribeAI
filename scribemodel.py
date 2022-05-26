@@ -75,44 +75,66 @@ class Model(tf.keras.Model):
 
         return pred_finished
 
-    def plot_predictions(self, pred_points, dist_img, eos_probs):
+    def plot_predictions(self, dist_img=None, pred_points=None, eos_probs=None):
         fig, ax = plt.subplot()
-        ax.imshow(dist_img)
 
-        stroke_x = []
-        stroke_y = []
-        for point in pred_points[0, :, :].numpy():
-            stroke_x.append(point[0])
-            stroke_y.append(point[1])
-            if point[2] == 1:  # if eos == 1
-                ax.plot(stroke_x, stroke_y, 'b-', linewidth=2.0)
-                stroke_x = []
-                stroke_y = []
+        if dist_img:
+            ax.imshow(dist_img)
 
-        ax.scatter(x=pred_points[0, :, 0].numpy(),
-                   y=pred_points[0, :, 1].numpy(),
-                   sizes=eos_probs)
+        if pred_points:
+            stroke_x = []
+            stroke_y = []
+            for point in pred_points[0, :, :].numpy():
+                stroke_x.append(point[0])
+                stroke_y.append(point[1])
+                if point[2] == 1:  # if eos == 1
+                    ax.plot(stroke_x, stroke_y, 'b-', linewidth=2.0)
+                    stroke_x = []
+                    stroke_y = []
 
-    def plot_windows(self, char_seq, windows):
-        return
+        if eos_probs:
+            ax.scatter(x=pred_points[0, :, 0].numpy(),
+                       y=pred_points[0, :, 1].numpy(),
+                       sizes=eos_probs)
 
-    def predict(self, char_seq, primer=None, bias=1):
+    def plot_windows(self, string_chars, char_weights, alphabet_windows):
+        fig, axs = plt.subplot(2, 1, layout='constrained')
+        axs[0].imshow(char_weights)
+        axs[0].set_xticks(np.arange(len(string_chars)), string_chars.split(""))
+        axs[0].set_yticks(np.arange(char_weights.shape[0]))
+        axs[0].set_title("window at char sequence")
+
+        axs[1].imshow(alphabet_windows)
+        axs[1].set_xticks(np.arange(len(self.alphabet)), self.alphabet.split(""))
+        axs[1].set_yticks(np.arange(alphabet_windows.shape[0]))
+        axs[1].set_title("window at alphabet")
+
+    def predict(self, char_seq, primer=None, bias=1):  # todo implement priming
         self.reset_states()
         self.bias = bias
         if type(char_seq) == str:
-            # convert chars to one hot
+            # convert string to one hot
+            string_chars = char_seq
+            one_hot_chars = tf.expand_dims(tf.one_hot(indices=[self.alphabet.index(c) for c in char_seq],
+                                       depth=len(self.alphabet)), axis=0)
+        else:
+            # convert one hot to string
+            string_chars = "".join([self.alphabet[oh.index(1)] for oh in tf.squeeze(char_seq, axis=0).numpy()])
+            one_hot_chars = char_seq
             pass
+        # one_hot_chars.shape: [batch_size(1), num_chars, len_alphabet]
 
         # define starting point
         pred_points = [tf.constant([[[0, 0, 0]]])]
         pred_params = []
-        pred_wins = []
+        char_weights = []
+        alphabet_windows = []
 
         pred_finished = False
         while not pred_finished:
-            pred_param, pred_win = self.__call__((pred_points[-1], char_seq), training=False)
+            pred_param, win = self.__call__((pred_points[-1], char_seq), training=False)
             # pred_param.shape: [batch_size(1), num_timesteps(1), 6*k+1]
-            # pred_win.shape: [batch_size(1), num_timesteps(1), len_alphabet]
+            # char_weight.shape: [batch_size(1), num_timesteps(1), num_chars, 1]
 
             # create dist and sample a single point
             mixture, bernoulli = create_dists(pred_param)
@@ -121,10 +143,19 @@ class Model(tf.keras.Model):
             pred_point = tf.concat([pred_point_coords, pred_point_eos], axis=-1)
             # pred_point.shape: [batch_size(1), num_timesteps(1), 3]
 
-            # append param, point and win to associated lists
+            # squeeze char_weight vector
+            char_weight = tf.squeeze(tf.squeeze(win[0], axis=-1), axis=0)
+            # char_weight.shape: [num_timesteps(1), num_chars]
+            # squeeze alphabet_window vector
+            alphabet_window = tf.squeeze(win[1], axis=0)
+            # char_weight.shape: [num_timesteps(1), len_alphabet]
+
+
+            # append param, point and char_weight to associated lists
             pred_params.append(pred_param)
             pred_points.append(pred_point)
-            pred_wins.append(pred_win)
+            char_weights.append(char_weight)
+            alphabet_windows.append(alphabet_window)
 
             # check if prediction should be terminated
             pred_finished = self.is_predict_finished(window)
@@ -133,14 +164,18 @@ class Model(tf.keras.Model):
         # pred_params.shape: [batch_size(1), num_timesteps, 6*k+1]
         pred_points = tf.concat(pred_points, axis=1)
         # pred_params.shape: [batch_size(1), num_timesteps, 3]
+        char_weights = tf.concat(char_weights, axis=0)
+        # pred_params.shape: [num_timesteps, num_chars]
+        alphabet_windows = tf.concat(alphabet_windows, axis=0)
+        # pred_params.shape: [num_timesteps, len_alphabet]
 
         # create full sequence distributions from network output
         mixture, bernoulli = create_dists(pred_params)
 
         dist_img = img_from_mixture_dist(mixture, pred_points)
 
-        self.plot_predictions(pred_points, dist_img, eos_probs=pred_params[:, :, -1])
-        self.plot_windows(char_seq, pred_wins)  # todo pred wins is still a list
+        self.plot_predictions(dist_img, pred_points, eos_probs=pred_params[:, :, -1])
+        self.plot_windows(string_chars, char_weights, alphabet_windows)
 
         # reset bias
         self.bias = 0

@@ -113,7 +113,7 @@ class AttentionLayer(tf.keras.layers.Layer):
         )
         self.char_weight_layer = tf.keras.layers.Dense(1)
 
-    def call(self, inputs):
+    def call(self, inputs, training=None):
         lstm_out = inputs[0]
         # lstm_out.shape: [batch_size, num_timesteps, num_lstm_units] (out of first lstm)
         lstm_out = tf.expand_dims(lstm_out, axis=2)
@@ -145,4 +145,7 @@ class AttentionLayer(tf.keras.layers.Layer):
         alphabet_window = tf.reduce_sum(weighted_chars, axis=2)
         # alphabet_window.shape: [batch_size, (num_timesteps), len_alphabet]
 
-        return alphabet_window
+        if training:
+            return alphabet_window
+        else:
+            return char_weights, alphabet_window
