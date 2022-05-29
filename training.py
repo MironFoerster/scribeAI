@@ -1,10 +1,14 @@
 import scribemodel as scribe
 import tensorflow as tf
 import os
-import datetime
 
-train_dir = "datasets/train"
-test_dir = "datasets/test"
+base_path = "C:/Users/miron/Git/scribeAI"
+
+run_name = "initial"
+ckpt_file = "weights-{epoch:02d}.hdf5"
+
+train_dir = "datasets/miron"
+test_dir = "datasets/miron"
 
 train_files = os.listdir(train_dir)
 test_files = os.listdir(test_dir)
@@ -28,28 +32,21 @@ for file in test_files:
     if test_set is None:
         test_set = test_data
     else:
-        test_set = train_set.concatenate(test_data)
+        test_set = test_set.concatenate(test_data)
 
-model = scribe.Model()
 
-model.compile(optimizer='adam',
-              loss=scribe.Loss(),
-              metrics=['accuracy'],
-              run_eagerly=True)
-
-run_name = "initial"
 tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=os.path.join("logs", run_name),
                                                       histogram_freq=1,
                                                       update_freq=5)
+
 model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
-    filepath=os.path.join("checkpoints", run_name),
+    filepath=os.path.join(base_path, "checkpoints", run_name, ckpt_file),
     save_weights_only=True,
     verbose=1,
-    monitor="val_loss",
-    save_best_only=True)
+    save_freq=20)
 
 bucket_boundaries = [101, 201, 301, 401, 501, 601, 701, 801, 901, 1001, 1101]
-batch_sizes = [10] * (len(bucket_boundaries) + 1)
+batch_sizes = [5] * (len(bucket_boundaries) + 1)
 
 train_batched = train_set.bucket_by_sequence_length(element_length_func=lambda x, y: tf.shape(x[0])[0],
                                                     bucket_boundaries=bucket_boundaries,
@@ -62,4 +59,17 @@ test_batched = test_set.bucket_by_sequence_length(element_length_func=lambda x, 
                                                   pad_to_bucket_boundary=True,
                                                   drop_remainder=True)
 
-model.fit(train_batched, epochs=10, validation_data=test_batched, callbacks=[tensorboard_callback, model_checkpoint_callback], verbose=1)
+model = scribe.Model()
+print(model.weights)
+
+model.compile(optimizer='adam',
+              loss=[scribe.Loss(), None, None],
+              metrics=[['accuracy'], [None, None]],
+              run_eagerly=True)
+
+
+model.evaluate(test_batched, verbose=2)
+model.load_weights(os.path.join(base_path, "checkpoints", run_name, ckpt_file.format(epoch=2)))
+model.fit(train_batched, epochs=1, validation_data=test_batched, callbacks=[tensorboard_callback, model_checkpoint_callback], verbose=1)
+model.evaluate(test_batched, verbose=2)
+model.load_weights(os.path.join(base_path, "checkpoints", run_name, ckpt_file.format(epoch=2)))

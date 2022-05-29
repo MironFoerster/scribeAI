@@ -6,9 +6,24 @@ tfd = tfp.distributions
 import window
 
 
+def coords_from_offsets(offsets):
+    if tf.is_tensor(offsets):
+        offsets = tf.split(offsets, offsets.shape[1], axis=1)
+
+    # create absolute coordinates from offsets list
+    coords = []
+    coord = tf.constant([[[0, 0]]], dtype=tf.float32)
+    # coord.shape: [1, 1, 2]
+    for offset in offsets:
+        coord = coord + offset[:, :, :2]
+        coords.append(tf.concat([coord, tf.expand_dims(offset[:, :, -1], axis=-1)], axis=-1))
+    coords = tf.concat(coords, axis=1)
+    return coords
+
 class Model(tf.keras.Model):
     def __init__(self, num_lstms=3, hidden_size=256):
         super().__init__()
+        self.counter = None
         self.num_lstms = num_lstms
         self.k_components = 20
         self.bias = 0  # unbiased predictions, higher bias means cleaner predictions
@@ -30,7 +45,7 @@ class Model(tf.keras.Model):
 
         self.out_bias = tf.Variable(tf.zeros_initializer()(shape=[6*self.k_components+1], dtype=tf.float32))
 
-    def call(self, inputs, training=None):
+    def call(self, inputs):
         # wrong: inputs.shape: ([batch_size, num_timesteps, 3], [batch_size, num_chars, len_alphabet])
         y = tf.zeros_like(self.out_bias)
         hidden_state = inputs[0]
@@ -39,7 +54,9 @@ class Model(tf.keras.Model):
             if layer == 1:  # second layer
                 # compute window
                 win = self.window_layer((hidden_state, char_seq))
-                hidden_state = tf.concat([hidden_state, win], axis=-1)
+                alphabet_window = win[0]
+                hidden_state = tf.concat([hidden_state, alphabet_window], axis=-1)
+
             hidden_state = self.lstms[layer](hidden_state)
             y = y + self.dense_outs[layer](hidden_state)
 
@@ -48,10 +65,7 @@ class Model(tf.keras.Model):
         # bring certain parts of outputs to desired numerical range
         pred_params = self.process_network_output(y, bias=self.bias)
 
-        if training:
-            return pred_params
-        else:
-            return pred_params, win
+        return pred_params, win
 
     def process_network_output(self, network_y, bias=0):
         # input/return shape: [batch_size, (num_timesteps), 6*k +1]
@@ -70,18 +84,19 @@ class Model(tf.keras.Model):
         processed_output = tf.concat([eos_probs, component_weights, correlations, means, std_devs], axis=2)
         return processed_output
 
-    def is_predict_finished(self, window):
-        pred_finished = False
-
-        return pred_finished
+    def is_predict_finished(self, win):
+        self.counter += 1
+        if self.counter > 500:
+            return True
+        else:
+            return False
 
     def plot_predictions(self, dist_img=None, pred_points=None, eos_probs=None):
-        fig, ax = plt.subplot()
+        fig, ax = plt.subplots()
+        if dist_img is not None:
+            ax.imshow(dist_img, aspect="auto")
 
-        if dist_img:
-            ax.imshow(dist_img)
-
-        if pred_points:
+        if pred_points is not None:
             stroke_x = []
             stroke_y = []
             for point in pred_points[0, :, :].numpy():
@@ -92,31 +107,40 @@ class Model(tf.keras.Model):
                     stroke_x = []
                     stroke_y = []
 
-        if eos_probs:
+        if eos_probs is not None:
             ax.scatter(x=pred_points[0, :, 0].numpy(),
                        y=pred_points[0, :, 1].numpy(),
-                       sizes=eos_probs)
+                       sizes=eos_probs[0, :])
+        plt.gca().invert_yaxis()
+        plt.show()
 
-    def plot_windows(self, string_chars, char_weights, alphabet_windows):
-        fig, axs = plt.subplot(2, 1, layout='constrained')
-        axs[0].imshow(char_weights)
-        axs[0].set_xticks(np.arange(len(string_chars)), string_chars.split(""))
+    def plot_windows(self, string_chars, alphabet_windows, char_weights):
+        fig, axs = plt.subplots(2, 1, layout='constrained')
+        axs[0].imshow(char_weights, aspect="equal", extent=[-0.5, 16+0.5, char_weights.shape[0]+0.5, -0.5], interpolation="none")
+        axs[0].set_xticks(np.arange(len(string_chars)), list(string_chars))
         axs[0].set_yticks(np.arange(char_weights.shape[0]))
         axs[0].set_title("window at char sequence")
 
-        axs[1].imshow(alphabet_windows)
-        axs[1].set_xticks(np.arange(len(self.alphabet)), self.alphabet.split(""))
+        axs[1].imshow(alphabet_windows, aspect="auto", interpolation='none')
+        axs[1].set_xticks(np.arange(len(self.alphabet)), list(self.alphabet))
         axs[1].set_yticks(np.arange(alphabet_windows.shape[0]))
         axs[1].set_title("window at alphabet")
 
+        plt.show()
+
     def predict(self, char_seq, primer=None, bias=1):  # todo implement priming
+        self.counter = 1  # only temporary for check if predict is finished
         self.reset_states()
         self.bias = bias
+
+        if primer is not None:
+            pred_param, win = self.__call__((pred_offsets[-1], one_hot_chars))
+
         if type(char_seq) == str:
             # convert string to one hot
             string_chars = char_seq
             one_hot_chars = tf.expand_dims(tf.one_hot(indices=[self.alphabet.index(c) for c in char_seq],
-                                       depth=len(self.alphabet)), axis=0)
+                                           depth=len(self.alphabet)), axis=0)
         else:
             # convert one hot to string
             string_chars = "".join([self.alphabet[oh.index(1)] for oh in tf.squeeze(char_seq, axis=0).numpy()])
@@ -124,62 +148,115 @@ class Model(tf.keras.Model):
             pass
         # one_hot_chars.shape: [batch_size(1), num_chars, len_alphabet]
 
-        # define starting point
-        pred_points = [tf.constant([[[0, 0, 0]]])]
+        # define starting offset
+        pred_offsets = [tf.constant([[[0, 0, 0]]], dtype=tf.float32)]
         pred_params = []
-        char_weights = []
         alphabet_windows = []
+        char_weights = []
 
         pred_finished = False
         while not pred_finished:
-            pred_param, win = self.__call__((pred_points[-1], char_seq), training=False)
+            pred_param, win = self.__call__((pred_offsets[-1], one_hot_chars))
             # pred_param.shape: [batch_size(1), num_timesteps(1), 6*k+1]
             # char_weight.shape: [batch_size(1), num_timesteps(1), num_chars, 1]
 
-            # create dist and sample a single point
+            # create dist and sample a single offset
             mixture, bernoulli = create_dists(pred_param)
-            pred_point_coords = mixture.sample()
-            pred_point_eos = bernoulli.sample()
-            pred_point = tf.concat([pred_point_coords, pred_point_eos], axis=-1)
-            # pred_point.shape: [batch_size(1), num_timesteps(1), 3]
+            pred_offset_coords = mixture.sample()
+            pred_offset_eos = bernoulli.sample()
+            pred_offset = tf.concat([pred_offset_coords, tf.expand_dims(pred_offset_eos, axis=-1)], axis=-1)
+            # pred_offset.shape: [batch_size(1), num_timesteps(1), 3]
 
-            # squeeze char_weight vector
-            char_weight = tf.squeeze(tf.squeeze(win[0], axis=-1), axis=0)
-            # char_weight.shape: [num_timesteps(1), num_chars]
             # squeeze alphabet_window vector
-            alphabet_window = tf.squeeze(win[1], axis=0)
+            alphabet_window = tf.squeeze(win[0], axis=0)
             # char_weight.shape: [num_timesteps(1), len_alphabet]
+            # squeeze char_weight vector
+            char_weight = tf.squeeze(tf.squeeze(win[1], axis=-1), axis=0)
+            # char_weight.shape: [num_timesteps(1), num_chars]
 
-
-            # append param, point and char_weight to associated lists
+            # append param, offset and char_weight to associated lists
             pred_params.append(pred_param)
-            pred_points.append(pred_point)
-            char_weights.append(char_weight)
+            pred_offsets.append(pred_offset)
             alphabet_windows.append(alphabet_window)
+            char_weights.append(char_weight)
 
-            # check if prediction should be terminated
-            pred_finished = self.is_predict_finished(window)
+            # check if prediction should be stopped
+            pred_finished = self.is_predict_finished(win)  # todo how to see when predict is finished?
 
         pred_params = tf.concat(pred_params, axis=1)
         # pred_params.shape: [batch_size(1), num_timesteps, 6*k+1]
-        pred_points = tf.concat(pred_points, axis=1)
-        # pred_params.shape: [batch_size(1), num_timesteps, 3]
-        char_weights = tf.concat(char_weights, axis=0)
-        # pred_params.shape: [num_timesteps, num_chars]
         alphabet_windows = tf.concat(alphabet_windows, axis=0)
-        # pred_params.shape: [num_timesteps, len_alphabet]
+        # alphabet_windows.shape: [num_timesteps, len_alphabet]
+        char_weights = tf.concat(char_weights, axis=0)
+        # char_weights.shape: [num_timesteps, num_chars]
+
+        pred_points = coords_from_offsets(pred_offsets)[:, 1:, :]  # [:, 1:, :] for skipping initial point
+
+        """# create absolute coordinates from offsets
+        pred_points = []
+        coords = tf.constant([[[0, 0]]], dtype=tf.float32)
+        # coords.shape: [1, 1, 2]
+        for offset in pred_offsets:
+            coords = coords + offset[:, :, :2]
+            pred_points.append(tf.concat([coords, tf.expand_dims(offset[:, :, -1], axis=-1)], axis=-1))
+
+        pred_points = tf.concat(pred_points[1:], axis=1)  # [:1] for skipping initial point
+        # pred_points.shape: [batch_size(1), num_timesteps, 3]"""
 
         # create full sequence distributions from network output
         mixture, bernoulli = create_dists(pred_params)
 
-        dist_img = img_from_mixture_dist(mixture, pred_points)
+        dist_img = self.img_from_mixture_dist(mixture, pred_points)
 
         self.plot_predictions(dist_img, pred_points, eos_probs=pred_params[:, :, -1])
-        self.plot_windows(string_chars, char_weights, alphabet_windows)
+        self.plot_windows(string_chars, alphabet_windows, char_weights)
 
         # reset bias
         self.bias = 0
         return pred_points
+
+    def img_from_mixture_dist(self, mixture, pred_points):
+        # pred_points.shape: [batchsize(1), timesteps, 3]
+        max_x, nx = 500, 500
+        max_y, ny = 100, 100
+        x = np.linspace(0, max_x, nx)
+        y = np.linspace(0, max_y, ny)
+        x_grid, y_grid = np.meshgrid(x, y)
+        mesh_grid = np.concatenate((np.expand_dims(x_grid, axis=-1), np.expand_dims(y_grid, axis=-1)), axis=-1)
+        # mesh_grid.shape: [max_y, max_x, 2]
+        # add batch and timestep dim to mesh_grid
+        mesh_grids = np.expand_dims(np.expand_dims(mesh_grid, axis=0), axis=0)
+        # mesh_grids.shape: [batch_size(1), num_timesteps(1), max_y, max_x, 2]
+        # repeat timesteps dim
+        mesh_grids = np.repeat(mesh_grids, pred_points.shape[1], axis=1)
+        # mesh_grids.shape: [batch_size(1), num_timesteps, max_y, max_x, 2]
+        # create offsets for moving the origin at each timestep
+        offsets = np.expand_dims(np.expand_dims(pred_points[:, :, :2], axis=2), axis=2)
+        # offsets.shape: [batch_size(1), num_timesteps, y(1), x(1), 2]
+        # x, y will be broadcast
+        # move mesh_grids at each timestep according to pred_points
+        mesh_grids = mesh_grids + offsets
+        # mesh_grids.shape: [batch_size(1), num_timesteps, max_y, max_x, 2]
+
+        # permute mesh grids to desired shape for .prob() call
+        mesh_grids = np.transpose(mesh_grids, axes=[2, 3, 0, 1, 4])
+        # mesh_grids.shape: [max_y, max_x, batch_size(1), num_timesteps, event_size(2)]
+        # schematically: [M1, ..., Mm, B1, ..., Bb, event_size]
+        # or: [sample_shape, batch_shape, event_shape]
+
+        dist_imgs = mixture.prob(mesh_grids)
+        # dist_imgs.shape: [max_y, max_x, batch_size(1), num_timesteps]
+        # schematically: [M1, ..., Mm, B1, ..., Bb]
+        # or: [sample_shape, batch_shape]
+
+        # squeeze batch dimension
+        dist_imgs = np.squeeze(dist_imgs, axis=2)
+        # dist_imgs.shape: [max_y, max_x, num_timesteps]
+
+        # sum timesteps
+        dist_img = np.sum(dist_imgs, axis=-1)
+        # dist_img.shape: [max_y, max_x]
+        return dist_img
 
 
 def covar_mat_from_corr_and_stddev(corrs, devs):
@@ -193,63 +270,6 @@ def covar_mat_from_corr_and_stddev(corrs, devs):
 
     covar_matrices = corr_mats * devs_mats * trans_devs_mats
     return covar_matrices
-
-
-def img_from_mixture_dist(mixture, pred_points):
-    # pred_points.shape: [batchsize(1), timesteps, 3]
-    max_x, nx = 5000, 5000
-    max_y, ny = 1000, 1000
-    x = np.linspace(0, max_x, nx)
-    y = np.linspace(0, max_y, ny)
-    x_grid, y_grid = np.meshgrid(x, y)
-    mesh_grid = np.concatenate((np.expand_dims(x_grid, axis=-1), np.expand_dims(y_grid, axis=-1)), axis=-1)
-    # mesh_grid.shape: [max_y, max_x, 2]
-
-    # add batch and timestep dim to mesh_grid
-    mesh_grids = np.expand_dims(np.expand_dims(mesh_grid, axis=0), axis=0)
-    # mesh_grids.shape: [batch_size(1), num_timesteps(1), max_y, max_x, 2]
-
-    # repeat timesteps dim
-    mesh_grids = np.repeat(mesh_grids, pred_points.shape[1], axis=1)
-    # mesh_grids.shape: [batch_size(1), num_timesteps, max_y, max_x, 2]
-
-    # create offsets for moving the origin at each timestep
-    offsets = np.expand_dims(np.expand_dims(pred_points[:, :, :2], axis=2), axis=2)
-    # offsets.shape: [batch_size(1), num_timesteps, y(1), x(1), 2]
-    # x, y will be broadcast
-
-    # move mesh_grids at each timestep according to pred_points
-    mesh_grids = mesh_grids + offsets
-    # mesh_grids.shape: [batch_size(1), num_timesteps, max_y, max_x, 2]
-
-    # add components dim to mesh_grids
-    mesh_grids = np.expand_dims(mesh_grids, axis=0)
-    # mesh_grids.shape: [batch_size(1), num_timesteps, k_components(1), max_y, max_x, 2]
-
-    # permute mesh grids to desired shape for .prob() call
-    mesh_grids = np.transpose(mesh_grids, axes=[3, 4, 0, 1, 2, 5])
-    # mesh_grids.shape: [max_y, max_x, batch_size(1), num_timesteps, k_components, event_size(2)]
-    # schematically: [M1, ..., Mm, B1, ..., Bb, event_size]
-    # or: [sample_shape, batch_shape, event_shape]
-
-    dist_imgs = mixture.prob(mesh_grid)
-    # dist_imgs.shape: [max_y, max_x, batch_size(1), num_timesteps, k_components]
-    # schematically: [M1, ..., Mm, B1, ..., Bb]
-    # or: [sample_shape, batch_shape]
-
-    # sum components
-    dist_imgs = np.reduce_sum(dist_imgs.numpy(), axis=-1)
-    # dist_imgs.shape: [max_y, max_x, batch_size(1), num_timesteps]
-
-    # squeeze batch dimension
-    dist_imgs = np.squeeze(dist_imgs, axis=2)
-    # dist_imgs.shape: [max_y, max_x, num_timesteps]
-
-    # sum timesteps
-    dist_img = np.reduce_sum(dist_imgs, axis=-1)
-    # dist_img.shape: [max_y, max_x]
-    return dist_img
-
 
 def create_dists(pred_params):
     # pred_params.shape: [batch_size, num_timesteps, k*6+1]
@@ -274,7 +294,8 @@ def create_dists(pred_params):
     )
 
     bernoulli = tfd.Bernoulli(
-        probs=pred_params[:, :, -1]  # eos_probs.shape: [batch_size, max_timesteps, 1]
+        probs=pred_params[:, :, -1],  # eos_probs.shape: [batch_size, max_timesteps, 1]
+        dtype=tf.float32
     )
     return mixture, bernoulli
 
