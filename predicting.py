@@ -34,4 +34,4 @@ model.compile(optimizer='adam',
 model.evaluate(test_batched.take(5), verbose=2)
 model.load_weights(os.path.join(base_path, "checkpoints", "initial", ckpt_file.format(epoch=2)))
 
-model.predict("build")
+model.predict("freak")

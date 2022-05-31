@@ -86,31 +86,33 @@ class Model(tf.keras.Model):
 
     def is_predict_finished(self, win):
         self.counter += 1
-        if self.counter > 500:
+        if self.counter > 100:
             return True
         else:
             return False
 
-    def plot_predictions(self, dist_img=None, pred_points=None, eos_probs=None):
+    def plot_predictions(self, dist_img=None, pred_points=None, eos_probs=None, img_size=None):
         fig, ax = plt.subplots()
         if dist_img is not None:
-            ax.imshow(dist_img, aspect="auto")
-
+            ax.imshow(dist_img, extent=(0, img_size[0], img_size[1], 0))#(-0.5, img_size[0]-0.5, img_size[1]-0.5, -0.5))
         if pred_points is not None:
             stroke_x = []
             stroke_y = []
             for point in pred_points[0, :, :].numpy():
                 stroke_x.append(point[0])
                 stroke_y.append(point[1])
+
                 if point[2] == 1:  # if eos == 1
+                    last_x = point[0]
                     ax.plot(stroke_x, stroke_y, 'b-', linewidth=2.0)
                     stroke_x = []
                     stroke_y = []
+            ax.plot(stroke_x, stroke_y, 'b-', linewidth=2.0)
 
         if eos_probs is not None:
             ax.scatter(x=pred_points[0, :, 0].numpy(),
                        y=pred_points[0, :, 1].numpy(),
-                       sizes=eos_probs[0, :])
+                       sizes=eos_probs[0, :]*1000)
         plt.gca().invert_yaxis()
         plt.show()
 
@@ -190,7 +192,7 @@ class Model(tf.keras.Model):
         char_weights = tf.concat(char_weights, axis=0)
         # char_weights.shape: [num_timesteps, num_chars]
 
-        pred_points = coords_from_offsets(pred_offsets)[:, 1:, :]  # [:, 1:, :] for skipping initial point
+        pred_points = coords_from_offsets(pred_offsets)
 
         """# create absolute coordinates from offsets
         pred_points = []
@@ -206,21 +208,25 @@ class Model(tf.keras.Model):
         # create full sequence distributions from network output
         mixture, bernoulli = create_dists(pred_params)
 
-        dist_img = self.img_from_mixture_dist(mixture, pred_points)
 
-        self.plot_predictions(dist_img, pred_points, eos_probs=pred_params[:, :, -1])
+        img_size = (10, 10)
+        dpu = 20  # dots per unit
+
+        dist_img = self.img_from_mixture_dist(mixture, pred_points[:, 1:, :], img_size, dpu)
+        dist_img_2 = self.img_from_mixture_dist(mixture, pred_points[:, :-1, :], img_size, dpu)
+        print(pred_points[:, 80, :])
+        self.plot_predictions(dist_img, pred_points, eos_probs=pred_params[:, :, -1], img_size=img_size)
+        self.plot_predictions(dist_img_2, pred_points, eos_probs=pred_params[:, :, -1], img_size=img_size)
         self.plot_windows(string_chars, alphabet_windows, char_weights)
 
         # reset bias
         self.bias = 0
         return pred_points
 
-    def img_from_mixture_dist(self, mixture, pred_points):
+    def img_from_mixture_dist(self, mixture, pred_points, img_size, dpu):  # fixme: something is not working properly i puppose the offset stuff
         # pred_points.shape: [batchsize(1), timesteps, 3]
-        max_x, nx = 500, 500
-        max_y, ny = 100, 100
-        x = np.linspace(0, max_x, nx)
-        y = np.linspace(0, max_y, ny)
+        x = np.linspace(0, img_size[0], img_size[0]*dpu, endpoint=False)
+        y = np.linspace(0, img_size[1], img_size[1]*dpu, endpoint=False)
         x_grid, y_grid = np.meshgrid(x, y)
         mesh_grid = np.concatenate((np.expand_dims(x_grid, axis=-1), np.expand_dims(y_grid, axis=-1)), axis=-1)
         # mesh_grid.shape: [max_y, max_x, 2]
@@ -231,15 +237,18 @@ class Model(tf.keras.Model):
         mesh_grids = np.repeat(mesh_grids, pred_points.shape[1], axis=1)
         # mesh_grids.shape: [batch_size(1), num_timesteps, max_y, max_x, 2]
         # create offsets for moving the origin at each timestep
-        offsets = np.expand_dims(np.expand_dims(pred_points[:, :, :2], axis=2), axis=2)
+        offsets = np.expand_dims(np.expand_dims(pred_points[:, :, :2], axis=2), axis=2)# + 0.5
         # offsets.shape: [batch_size(1), num_timesteps, y(1), x(1), 2]
         # x, y will be broadcast
         # move mesh_grids at each timestep according to pred_points
-        mesh_grids = mesh_grids + offsets
+        print(offsets[0, 80, 0, 0, :])
+        print(pred_points[0, 80, :])
+        mesh_grids = mesh_grids - offsets
         # mesh_grids.shape: [batch_size(1), num_timesteps, max_y, max_x, 2]
-
         # permute mesh grids to desired shape for .prob() call
+        print(mesh_grids[0, 80, :, :, :])
         mesh_grids = np.transpose(mesh_grids, axes=[2, 3, 0, 1, 4])
+
         # mesh_grids.shape: [max_y, max_x, batch_size(1), num_timesteps, event_size(2)]
         # schematically: [M1, ..., Mm, B1, ..., Bb, event_size]
         # or: [sample_shape, batch_shape, event_shape]
@@ -252,6 +261,8 @@ class Model(tf.keras.Model):
         # squeeze batch dimension
         dist_imgs = np.squeeze(dist_imgs, axis=2)
         # dist_imgs.shape: [max_y, max_x, num_timesteps]
+
+        self.plot_predictions(dist_img=dist_imgs[:, :, 80], img_size=(10, 10))
 
         # sum timesteps
         dist_img = np.sum(dist_imgs, axis=-1)
