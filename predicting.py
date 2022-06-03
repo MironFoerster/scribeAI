@@ -3,7 +3,8 @@ import tensorflow as tf
 import os
 
 base_path = "C:/Users/miron/Git/scribeAI"
-ckpt_file = "weights-{epoch:02d}.hdf5"
+
+run_name = "miron"
 
 test_dir = "datasets/miron"
 test_files = os.listdir(test_dir)
@@ -31,7 +32,7 @@ model.compile(optimizer='adam',
               loss=[scribe.Loss(), None, None],
               metrics=[['accuracy'], [None, None]],
               run_eagerly=True)
-model.evaluate(test_batched.take(5), verbose=2)
-model.load_weights(os.path.join(base_path, "checkpoints", "initial", ckpt_file.format(epoch=2)))
+model.evaluate(test_set.batch(batch_size=1).take(1), verbose=2)
+model.load_weights(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"))
 
 model.predict("freak")

@@ -117,20 +117,21 @@ class AttentionLayer(tf.keras.layers.Layer):
         lstm_out = inputs[0]
         # lstm_out.shape: [batch_size, num_timesteps, num_lstm_units] (out of first lstm)
         lstm_out = tf.expand_dims(lstm_out, axis=2)
-        # lstm_out.shape: [batch_size, num_timesteps, num_chars, num_lstm_units] (out of first lstm)
+        # lstm_out.shape: [batch_size, num_timesteps, num_chars(1), num_lstm_units] (out of first lstm)
 
         char_seq = inputs[1]
         # char_seq.shape: [batch_size, num_chars, len_alphabet] (one hot encoded characters)
-        char_seq_embedding = self.char_seq_embedding_layer(char_seq)
-        # char_representations.shape: [batch_size, num_chars, num_embedding_units]
-        char_seq_embedding = tf.expand_dims(char_seq_embedding, axis=1)
-        # char_representations.shape: [batch_size, num_timesteps, num_chars, num_embedding_units]
+        char_seq_repres = self.char_seq_embedding_layer(char_seq)
+        # char_repres.shape: [batch_size, num_chars, num_embedding_units]
+        char_seq_repres = tf.expand_dims(char_seq_repres, axis=1)
+        # char_repres.shape: [batch_size, num_timesteps(1), num_chars, num_embedding_units]
 
-        lstm_out = tf.tile(lstm_out, [1, 1, char_seq_embedding.shape[2], 1])
-        char_seq_embedding = tf.tile(char_seq_embedding, [1, lstm_out.shape[1], 1, 1])
+        lstm_out = tf.tile(lstm_out, [1, 1, char_seq_repres.shape[2], 1])
+        char_seq_repres = tf.tile(char_seq_repres, [1, lstm_out.shape[1], 1, 1])
 
-        char_weights = self.char_weight_layer(tf.concat([lstm_out, char_seq_embedding], axis=-1))
+        char_weights = self.char_weight_layer(tf.concat([lstm_out, char_seq_repres], axis=-1))
         # char_weights.shape: [batch_size, num_timesteps, num_chars, 1(bc to len_alphabet)]
+        print(char_weights[0, :, 0, 0]-char_weights[0, :, 1, 0])
 
         # insert a timestep dimension into char_seq
         char_seq = tf.expand_dims(char_seq, axis=1)

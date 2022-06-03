@@ -4,6 +4,7 @@ import tensorflow_probability as tfp
 import matplotlib.pyplot as plt
 tfd = tfp.distributions
 import window
+import os
 
 
 def coords_from_offsets(offsets):
@@ -24,6 +25,7 @@ class Model(tf.keras.Model):
     def __init__(self, num_lstms=3, hidden_size=256):
         super().__init__()
         self.counter = None
+        self.figures_dir = "figures"
         self.num_lstms = num_lstms
         self.k_components = 20
         self.bias = 0  # unbiased predictions, higher bias means cleaner predictions
@@ -91,7 +93,7 @@ class Model(tf.keras.Model):
         else:
             return False
 
-    def plot_predictions(self, dist_img=None, pred_points=None, eos_probs=None, img_size=None):
+    def plot_predictions(self, dist_img=None, pred_points=None, eos_probs=None, img_size=None, save=None):
         fig, ax = plt.subplots()
         if dist_img is not None:
             ax.imshow(dist_img, extent=(0, img_size[0], img_size[1], 0))#(-0.5, img_size[0]-0.5, img_size[1]-0.5, -0.5))
@@ -114,11 +116,15 @@ class Model(tf.keras.Model):
                        y=pred_points[0, :, 1].numpy(),
                        sizes=eos_probs[0, :]*1000)
         plt.gca().invert_yaxis()
-        plt.show()
+        if type(save) == str:  # save_filename
+            plt.savefig(os.path.join(self.figures_dir, "preds", save))
+        else:
+            plt.show()
+        plt.close("all")
 
-    def plot_windows(self, string_chars, alphabet_windows, char_weights):
+    def plot_windows(self, string_chars, alphabet_windows, char_weights, save=None):
         fig, axs = plt.subplots(2, 1, layout='constrained')
-        axs[0].imshow(char_weights, aspect="equal", extent=[-0.5, 16+0.5, char_weights.shape[0]+0.5, -0.5], interpolation="none")
+        axs[0].imshow(char_weights, aspect="auto", interpolation="none")
         axs[0].set_xticks(np.arange(len(string_chars)), list(string_chars))
         axs[0].set_yticks(np.arange(char_weights.shape[0]))
         axs[0].set_title("window at char sequence")
@@ -128,14 +134,19 @@ class Model(tf.keras.Model):
         axs[1].set_yticks(np.arange(alphabet_windows.shape[0]))
         axs[1].set_title("window at alphabet")
 
-        plt.show()
+        if type(save) == str:  # save_filename
+            plt.savefig(os.path.join(self.figures_dir, "wins", save))
+        else:
+            plt.show()
+        plt.close("all")
 
-    def predict(self, char_seq, primer=None, bias=1):  # todo implement priming
+    def predict(self, char_seq, primer=None, bias=1, save=None):  # todo implement priming
         self.counter = 1  # only temporary for check if predict is finished
         self.reset_states()
         self.bias = bias
 
         if primer is not None:
+            pass
             pred_param, win = self.__call__((pred_offsets[-1], one_hot_chars))
 
         if type(char_seq) == str:
@@ -171,7 +182,7 @@ class Model(tf.keras.Model):
 
             # squeeze alphabet_window vector
             alphabet_window = tf.squeeze(win[0], axis=0)
-            # char_weight.shape: [num_timesteps(1), len_alphabet]
+            # alphabet_window.shape: [num_timesteps(1), len_alphabet]
             # squeeze char_weight vector
             char_weight = tf.squeeze(tf.squeeze(win[1], axis=-1), axis=0)
             # char_weight.shape: [num_timesteps(1), num_chars]
@@ -194,30 +205,15 @@ class Model(tf.keras.Model):
 
         pred_points = coords_from_offsets(pred_offsets)
 
-        """# create absolute coordinates from offsets
-        pred_points = []
-        coords = tf.constant([[[0, 0]]], dtype=tf.float32)
-        # coords.shape: [1, 1, 2]
-        for offset in pred_offsets:
-            coords = coords + offset[:, :, :2]
-            pred_points.append(tf.concat([coords, tf.expand_dims(offset[:, :, -1], axis=-1)], axis=-1))
-
-        pred_points = tf.concat(pred_points[1:], axis=1)  # [:1] for skipping initial point
-        # pred_points.shape: [batch_size(1), num_timesteps, 3]"""
-
         # create full sequence distributions from network output
         mixture, bernoulli = create_dists(pred_params)
 
-
-        img_size = (10, 10)
-        dpu = 20  # dots per unit
+        img_size = (100, 10)
+        dpu = 10  # dots per unit
 
         dist_img = self.img_from_mixture_dist(mixture, pred_points[:, 1:, :], img_size, dpu)
-        dist_img_2 = self.img_from_mixture_dist(mixture, pred_points[:, :-1, :], img_size, dpu)
-        print(pred_points[:, 80, :])
-        self.plot_predictions(dist_img, pred_points, eos_probs=pred_params[:, :, -1], img_size=img_size)
-        self.plot_predictions(dist_img_2, pred_points, eos_probs=pred_params[:, :, -1], img_size=img_size)
-        self.plot_windows(string_chars, alphabet_windows, char_weights)
+        self.plot_predictions(dist_img, pred_points, eos_probs=pred_params[:, :, -1], img_size=img_size, save=save)
+        self.plot_windows(string_chars, alphabet_windows, char_weights, save=save)
 
         # reset bias
         self.bias = 0
@@ -261,8 +257,6 @@ class Model(tf.keras.Model):
         # squeeze batch dimension
         dist_imgs = np.squeeze(dist_imgs, axis=2)
         # dist_imgs.shape: [max_y, max_x, num_timesteps]
-
-        self.plot_predictions(dist_img=dist_imgs[:, :, 80], img_size=(10, 10))
 
         # sum timesteps
         dist_img = np.sum(dist_imgs, axis=-1)
@@ -334,3 +328,22 @@ class Loss(tf.keras.losses.Loss):
         total_loss = tf.math.reduce_mean(batch_losses, axis=0, keepdims=True)  # []
 
         return total_loss
+
+
+class PredictCallback(tf.keras.callbacks.Callback):
+    def __init__(self, model, dataset, base_path, run_name):
+        self.pred_model = Model(model.num_lstms, model.hidden_size)
+        self.pred_model.compile(optimizer='adam',
+                      loss=[Loss(), None, None],
+                      metrics=[['accuracy'], [None, None]],
+                      run_eagerly=True)
+        self.base_path = base_path
+        self.run_name = run_name
+        print("predict callback")
+        self.pred_model.evaluate(dataset.batch(batch_size=1).take(1), verbose=2)
+        self.pred_model.load_weights(os.path.join(self.base_path, "checkpoints", self.run_name, "weights.hdf5"))
+        self.pred_model.predict("hello", save="epoch{e:0>2}.png".format(e="test"))
+
+    def on_epoch_end(self, epoch, logs=None):
+        self.pred_model.load_weights(os.path.join(self.base_path, "checkpoints", self.run_name, "weights.hdf5"))
+        self.pred_model.predict("hello", save="epoch{e:0>2}.svg".format(e=epoch))

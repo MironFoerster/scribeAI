@@ -1,11 +1,11 @@
+import scribemodel
 import scribemodel as scribe
 import tensorflow as tf
 import os
 
 base_path = "C:/Users/miron/Git/scribeAI"
 
-run_name = "initial"
-ckpt_file = "weights-{epoch:02d}.hdf5"
+run_name = "miron"
 
 train_dir = "datasets/miron"
 test_dir = "datasets/miron"
@@ -34,16 +34,20 @@ for file in test_files:
     else:
         test_set = test_set.concatenate(test_data)
 
+model = scribe.Model()
+print("instantiate model")
 
 tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=os.path.join("logs", run_name),
                                                       histogram_freq=1,
                                                       update_freq=5)
 
 model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
-    filepath=os.path.join(base_path, "checkpoints", run_name, ckpt_file),
+    filepath=os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"),
     save_weights_only=True,
     verbose=1,
     save_freq=20)
+
+predict_callback = scribemodel.PredictCallback(model, train_set, base_path, run_name)
 
 bucket_boundaries = [101, 201, 301, 401, 501, 601, 701, 801, 901, 1001, 1101]
 batch_sizes = [5] * (len(bucket_boundaries) + 1)
@@ -59,17 +63,17 @@ test_batched = test_set.bucket_by_sequence_length(element_length_func=lambda x, 
                                                   pad_to_bucket_boundary=True,
                                                   drop_remainder=True)
 
-model = scribe.Model()
-print(model.weights)
-
 model.compile(optimizer='adam',
               loss=[scribe.Loss(), None, None],
               metrics=[['accuracy'], [None, None]],
               run_eagerly=True)
 
-
-model.evaluate(test_batched, verbose=2)
-model.load_weights(os.path.join(base_path, "checkpoints", run_name, ckpt_file.format(epoch=2)))
-model.fit(train_batched, epochs=1, validation_data=test_batched, callbacks=[tensorboard_callback, model_checkpoint_callback], verbose=1)
-model.evaluate(test_batched, verbose=2)
-model.load_weights(os.path.join(base_path, "checkpoints", run_name, ckpt_file.format(epoch=2)))
+if os.path.isfile(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5")):
+    print("evaluating")
+    model.evaluate(train_batched.take(1), verbose=2)
+    print("evaluated")
+    model.load_weights(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"))
+    print("loaded")
+print("fitting")
+model.fit(train_batched, epochs=50, callbacks=[tensorboard_callback, model_checkpoint_callback, predict_callback], verbose=1)
+# validation_data=test_batched,
