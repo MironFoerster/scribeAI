@@ -195,7 +195,9 @@ class Model(tf.keras.Model):
 
             # check if prediction should be stopped
             pred_finished = self.is_predict_finished(win)  # todo how to see when predict is finished?
-
+        fig, ax = plt.subplots()
+        ax.imshow(tf.concat(self.window_layer.outs, axis=0), aspect="auto", interpolation="none")
+        plt.show()
         pred_params = tf.concat(pred_params, axis=1)
         # pred_params.shape: [batch_size(1), num_timesteps, 6*k+1]
         alphabet_windows = tf.concat(alphabet_windows, axis=0)
@@ -237,12 +239,9 @@ class Model(tf.keras.Model):
         # offsets.shape: [batch_size(1), num_timesteps, y(1), x(1), 2]
         # x, y will be broadcast
         # move mesh_grids at each timestep according to pred_points
-        print(offsets[0, 80, 0, 0, :])
-        print(pred_points[0, 80, :])
         mesh_grids = mesh_grids - offsets
         # mesh_grids.shape: [batch_size(1), num_timesteps, max_y, max_x, 2]
         # permute mesh grids to desired shape for .prob() call
-        print(mesh_grids[0, 80, :, :, :])
         mesh_grids = np.transpose(mesh_grids, axes=[2, 3, 0, 1, 4])
 
         # mesh_grids.shape: [max_y, max_x, batch_size(1), num_timesteps, event_size(2)]
@@ -332,6 +331,7 @@ class Loss(tf.keras.losses.Loss):
 
 class PredictCallback(tf.keras.callbacks.Callback):
     def __init__(self, model, dataset, base_path, run_name):
+
         self.pred_model = Model(model.num_lstms, model.hidden_size)
         self.pred_model.compile(optimizer='adam',
                       loss=[Loss(), None, None],
@@ -339,8 +339,7 @@ class PredictCallback(tf.keras.callbacks.Callback):
                       run_eagerly=True)
         self.base_path = base_path
         self.run_name = run_name
-        print("predict callback")
-        self.pred_model.evaluate(dataset.batch(batch_size=1).take(1), verbose=2)
+        self.pred_model.evaluate(dataset.unbatch().batch(batch_size=1).take(1), verbose=2)
         self.pred_model.load_weights(os.path.join(self.base_path, "checkpoints", self.run_name, "weights.hdf5"))
         self.pred_model.predict("hello", save="epoch{e:0>2}.png".format(e="test"))
 

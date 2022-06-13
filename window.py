@@ -112,10 +112,12 @@ class AttentionLayer(tf.keras.layers.Layer):
             layer=tf.keras.layers.GRU(64, return_sequences=True)
         )
         self.char_weight_layer = tf.keras.layers.Dense(1)
+        self.outs=[]
 
     def call(self, inputs):
         lstm_out = inputs[0]
         # lstm_out.shape: [batch_size, num_timesteps, num_lstm_units] (out of first lstm)
+        self.outs.append(lstm_out[0, :, :])
         lstm_out = tf.expand_dims(lstm_out, axis=2)
         # lstm_out.shape: [batch_size, num_timesteps, num_chars(1), num_lstm_units] (out of first lstm)
 
@@ -131,7 +133,6 @@ class AttentionLayer(tf.keras.layers.Layer):
 
         char_weights = self.char_weight_layer(tf.concat([lstm_out, char_seq_repres], axis=-1))
         # char_weights.shape: [batch_size, num_timesteps, num_chars, 1(bc to len_alphabet)]
-        print(char_weights[0, :, 0, 0]-char_weights[0, :, 1, 0])
 
         # insert a timestep dimension into char_seq
         char_seq = tf.expand_dims(char_seq, axis=1)

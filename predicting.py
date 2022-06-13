@@ -33,6 +33,9 @@ model.compile(optimizer='adam',
               metrics=[['accuracy'], [None, None]],
               run_eagerly=True)
 model.evaluate(test_set.batch(batch_size=1).take(1), verbose=2)
+#model.predict("freak")
+
 model.load_weights(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"))
+#model.evaluate(test_set.batch(batch_size=1).take(1), verbose=2)
 
 model.predict("freak")
