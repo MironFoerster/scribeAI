@@ -36,7 +36,7 @@ def bucket(dataset, bucket_size=20):  #acts as sort
     #buckets = batched_buckets.unbatch()
     return batched_buckets
 
-def pad_person_sets(person_sets, batch_size):
+def pad_person_sets(person_sets):
     # padding the number of elements of each person in each bucket-batch to the maximum number of elements in this bucket
     # buckets_sets_batch = tf.data.Dataset.from_tensor_slices(sets_batch)
     # print(sets_batch)
@@ -95,14 +95,12 @@ def pad_person_sets(person_sets, batch_size):
     # batched_sets = padded_sets_batch.batch(batch_size, drop_remainder=True)
     return pad_exp_dsets, padding_num
 
-def data_for_priming(datasets_list):
-    batch_size = 5  # len(datasets) for full batch
-
+def data_for_priming(datasets_list, batch_size):
     #datasets = tf.data.Dataset.from_tensor_slices(datasets)
     #print(datasets)
     #for s in datasets:
     #    print(s)
-    bucket_sizes = list(range(40, 60, 2))
+    bucket_sizes = [50]#list(range(40, 60, 2))
     print("entering for")
     for bucket_size in bucket_sizes:
         print(bucket_size)
@@ -112,7 +110,6 @@ def data_for_priming(datasets_list):
             bucketed_sets.append(bucket(set, bucket_size))
         #print(bucketed_sets)
 
-        batch_size = 5
         chunked_sets = [bucketed_sets[i:i+batch_size] for i in range(0, len(bucketed_sets), batch_size)]
         #sets_batches = bucketed_sets.batch(batch_size, drop_remainder=True)
         #print(sets_batches)
@@ -122,7 +119,7 @@ def data_for_priming(datasets_list):
         #        print(s)
         #padded_sets_batches = sets_batches.map(lambda sets_batch: pad_sets_batch(sets_batch, batch_size))
 
-        padded_chunked_sets, padding_nums = tuple(zip(*[pad_person_sets(chunk, batch_size) for chunk in chunked_sets]))
+        padded_chunked_sets, padding_nums = tuple(zip(*[pad_person_sets(chunk) for chunk in chunked_sets]))
         total_padding = sum(padding_nums)
         print(total_padding)
         unchunked_sets = [set for chunk in padded_chunked_sets for set in chunk]
@@ -130,29 +127,31 @@ def data_for_priming(datasets_list):
         #unbatched_sets = padded_sets_batches.map(lambda ds: ds.unbatch())
     print("interleaveing")
     interleaved_ds = ds_for_interleave.interleave(map_func=lambda x: x,
-                                          cycle_length=batch_size,
-                                          block_length=1
-                                          )
-    batched = interleaved_ds.padded_batch(batch_size, drop_remainder=True)
+                                                  cycle_length=batch_size,
+                                                  block_length=1
+                                                  )
+    batched = interleaved_ds.batch(batch_size, drop_remainder=True)
 
-    bucket_boundaries = []
-    for batch in batched:
-        bucket_boundaries.append(batch[1].shape[1]+1)
+    #bucket_boundaries = []
+    #for batch in batched:
+     #   bucket_boundaries.append(batch[1].shape[1]+1)
 
-    batched = batched.bucket_by_sequence_length(lambda x, y: y.shape[0],
-                                                bucket_boundaries=bucket_boundaries,
-                                                bucket_batch_sizes=[batch_size]*(len(bucket_boundaries)+1),
-                                                pad_to_bucket_boundary=True,
-                                                drop_remainder=True)
+    #batched = batched.bucket_by_sequence_length(lambda x, y: y.shape[0],
+     #                                           bucket_boundaries=bucket_boundaries,
+      #                                          bucket_batch_sizes=[batch_size]*(len(bucket_boundaries)+1),
+       #                                         pad_to_bucket_boundary=True,
+        #                                        drop_remainder=True)
     return batched
 
 
 train_sets = datasets_from_files(train_files, train_dir)
 test_sets = datasets_from_files(test_files, test_dir)
 
-train_for_priming = data_for_priming(train_sets)
-test_for_priming = data_for_priming(test_sets)
+train_for_priming = data_for_priming(train_sets, batch_size)
+test_for_priming = data_for_priming(test_sets, batch_size)
 
+for i in test_for_priming.take(1):
+    print(i)
 
 model = scribe.Model()
 print("instantiate model")
@@ -172,11 +171,11 @@ predict_callback = scribemodel.PredictCallback(model, test_for_priming, base_pat
 model.compile(optimizer='adam',
               loss=[scribe.Loss(), None, None],
               metrics=[['accuracy'], [None, None]],
-              run_eagerly=False)
+              run_eagerly=True)
 
 if os.path.isfile(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5")):
     print("evaluating")
-    model.evaluate(test_for_priming.unbatch().batch(batch_size=1, drop_remainder=True).take(1), verbose=2)
+    model.evaluate(test_for_priming.unbatch().batch(batch_size=5, drop_remainder=True).take(1), verbose=2)
     print("evaluated")
     model.load_weights(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"))
     print("loaded")
