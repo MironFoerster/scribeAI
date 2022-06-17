@@ -317,6 +317,8 @@ class Loss(tf.keras.losses.Loss):
             pred_params = pred_params.to_tensor()
 
         mixture, bernoulli = create_dists(pred_params)
+        print(true_points[:, :, :2])
+        print(1/0)
 
         mixture_prob = mixture.log_prob(true_points[:, :, :2])
         bernoulli_prob = bernoulli.log_prob(true_points[:, :, 2])
@@ -339,7 +341,10 @@ class PredictCallback(tf.keras.callbacks.Callback):
                       run_eagerly=True)
         self.base_path = base_path
         self.run_name = run_name
+        for batch in dataset:
+            print(batch)
         self.pred_model.evaluate(dataset.unbatch().batch(batch_size=1).take(1), verbose=2)
+        print("evaluated")
         self.pred_model.load_weights(os.path.join(self.base_path, "checkpoints", self.run_name, "weights.hdf5"))
         self.pred_model.predict("hello", save="epoch{e:0>2}.png".format(e="test"))
 

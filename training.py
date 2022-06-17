@@ -39,10 +39,8 @@ def bucket(dataset, bucket_size=20):  #acts as sort
 def pad_person_sets(person_sets):
     # padding the number of elements of each person in each bucket-batch to the maximum number of elements in this bucket
     # buckets_sets_batch = tf.data.Dataset.from_tensor_slices(sets_batch)
-    # print(sets_batch)
     # buckets_sets_batch = buckets_sets_batch.map(lambda set: set.map(lambda x, y: tf.data.Dataset.from_tensor_slices((x, y))))
     sets_list = [[bucket for bucket in set] for set in person_sets]
-    #print(sets_list[0][0])
     bucket_boundaries = []
     for person_set in sets_list:
         for bucket in person_set:
@@ -146,12 +144,9 @@ def data_for_priming(datasets_list, batch_size):
 
 train_sets = datasets_from_files(train_files, train_dir)
 test_sets = datasets_from_files(test_files, test_dir)
-
+batch_size = 20
 train_for_priming = data_for_priming(train_sets, batch_size)
 test_for_priming = data_for_priming(test_sets, batch_size)
-
-for i in test_for_priming.take(1):
-    print(i)
 
 model = scribe.Model()
 print("instantiate model")
@@ -175,7 +170,7 @@ model.compile(optimizer='adam',
 
 if os.path.isfile(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5")):
     print("evaluating")
-    model.evaluate(test_for_priming.unbatch().batch(batch_size=5, drop_remainder=True).take(1), verbose=2)
+    model.evaluate(test_for_priming.unbatch().batch(batch_size=batch_size, drop_remainder=True).take(1), verbose=2)
     print("evaluated")
     model.load_weights(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"))
     print("loaded")
