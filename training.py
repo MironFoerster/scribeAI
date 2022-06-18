@@ -101,7 +101,6 @@ def data_for_priming(datasets_list, batch_size):
     bucket_sizes = [50]#list(range(40, 60, 2))
     print("entering for")
     for bucket_size in bucket_sizes:
-        print(bucket_size)
         #bucketed_sets = datasets.map(lambda x: bucket(x, bucket_size))
         bucketed_sets = []
         for set in datasets_list:
@@ -170,6 +169,15 @@ model.compile(optimizer='adam',
 
 if os.path.isfile(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5")):
     print("evaluating")
+    test_eval_x = (tf.constant([[[0., 0., 0.],
+        [0., 0., 0.]]], dtype=tf.float32), tf.constant([[[0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+         0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+         0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+         0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 0., 0.,
+         0., 0., 0., 0., 0., 0., 0., 0.]]], dtype=tf.float32))
+    test_eval_y = tf.constant([[[0., 0., 0.],
+                                 [0., 0., 0.]]], dtype=tf.float32)
+    model.evaluate(test_eval_x, test_eval_y, verbose=2)
     model.evaluate(test_for_priming.unbatch().batch(batch_size=batch_size, drop_remainder=True).take(1), verbose=2)
     print("evaluated")
     model.load_weights(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"))

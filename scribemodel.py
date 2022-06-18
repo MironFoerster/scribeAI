@@ -30,6 +30,7 @@ class Model(tf.keras.Model):
         self.k_components = 20
         self.bias = 0  # unbiased predictions, higher bias means cleaner predictions
         self.hidden_size = hidden_size
+        self.masking = tf.keras.layers.Masking(mask_value=0.)
         self.window_layer = window.AttentionLayer()
         self.alphabet = "!'(),-./0123456789:?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         self.lstms = []
@@ -73,7 +74,7 @@ class Model(tf.keras.Model):
         # input/return shape: [batch_size, (num_timesteps), 6*k +1]
         # apply processing to bring certain parts of
         # outputs to desired numerical range
-        # for later use as parameters for mixture density layer
+        # for later use as parameters for mixture density layer#
 
         k = self.k_components
         eos_probs = tf.expand_dims(1/(1+tf.exp(network_y[:, :, -1])), axis=-1)  # modified sigmoid
@@ -83,7 +84,7 @@ class Model(tf.keras.Model):
         std_devs = tf.exp(network_y[:, :, 4*k:6*k]-bias)  # exp
 
         # concat to recreate shape
-        processed_output = tf.concat([eos_probs, component_weights, correlations, means, std_devs], axis=2)
+        processed_output = tf.concat([component_weights, correlations, means, std_devs, eos_probs], axis=2)
         return processed_output
 
     def is_predict_finished(self, win):
@@ -147,7 +148,7 @@ class Model(tf.keras.Model):
 
         if primer is not None:
             pass
-            pred_param, win = self.__call__((pred_offsets[-1], one_hot_chars))
+            # pred_param, win = self.__call__((pred_offsets[-1], one_hot_chars))
 
         if type(char_seq) == str:
             # convert string to one hot
@@ -195,9 +196,9 @@ class Model(tf.keras.Model):
 
             # check if prediction should be stopped
             pred_finished = self.is_predict_finished(win)  # todo how to see when predict is finished?
-        fig, ax = plt.subplots()
-        ax.imshow(tf.concat(self.window_layer.outs, axis=0), aspect="auto", interpolation="none")
-        plt.show()
+        #fig, ax = plt.subplots()
+        #ax.imshow(tf.concat(self.window_layer.outs, axis=0), aspect="auto", interpolation="none")
+        #plt.show()
         pred_params = tf.concat(pred_params, axis=1)
         # pred_params.shape: [batch_size(1), num_timesteps, 6*k+1]
         alphabet_windows = tf.concat(alphabet_windows, axis=0)
@@ -292,7 +293,7 @@ def create_dists(pred_params):
             # [batch_size, max_timesteps, k_components, n_variables]
             loc=tf.reshape(pred_params[:, :, 2 * k:4 * k], [shape[0], shape[1], k, 2]),
             # [batch_size, max_timesteps, k_components, n_variables, n_variables]
-            scale_tril=tf.linalg.cholesky(
+            scale_tril=tf.linalg.cholesky(  # input must be nonzero
                 covar_mat_from_corr_and_stddev(pred_params[:, :, k:2 * k], pred_params[:, :, 4 * k:6 * k]))
         )
     )
@@ -317,8 +318,6 @@ class Loss(tf.keras.losses.Loss):
             pred_params = pred_params.to_tensor()
 
         mixture, bernoulli = create_dists(pred_params)
-        print(true_points[:, :, :2])
-        print(1/0)
 
         mixture_prob = mixture.log_prob(true_points[:, :, :2])
         bernoulli_prob = bernoulli.log_prob(true_points[:, :, 2])
@@ -341,10 +340,7 @@ class PredictCallback(tf.keras.callbacks.Callback):
                       run_eagerly=True)
         self.base_path = base_path
         self.run_name = run_name
-        for batch in dataset:
-            print(batch)
         self.pred_model.evaluate(dataset.unbatch().batch(batch_size=1).take(1), verbose=2)
-        print("evaluated")
         self.pred_model.load_weights(os.path.join(self.base_path, "checkpoints", self.run_name, "weights.hdf5"))
         self.pred_model.predict("hello", save="epoch{e:0>2}.png".format(e="test"))
 
