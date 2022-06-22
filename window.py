@@ -105,7 +105,7 @@ class GravesStyleWithOffset(tf.keras.layers.Layer):
         return alphabet_window
 
 
-class AttentionLayer(tf.keras.layers.Layer):
+class AttentionLayerOH(tf.keras.layers.Layer):
     def __init__(self):
         super().__init__()
         self.char_seq_embedding_layer = tf.keras.layers.Bidirectional(
@@ -148,3 +148,67 @@ class AttentionLayer(tf.keras.layers.Layer):
         # alphabet_window.shape: [batch_size, (num_timesteps), len_alphabet]
 
         return alphabet_window, char_weights
+
+
+class AttentionLayer(tf.keras.layers.Layer):
+    def __init__(self, len_alphabet):
+        super().__init__()
+        self.embedding_size = len_alphabet//2
+        self.embedding = tf.keras.layers.Embedding(input_dim=len_alphabet+1, output_dim=self.embedding_size, mask_zero=True)
+        self.contexting = tf.keras.layers.Bidirectional(
+            layer=tf.keras.layers.GRU(self.embedding_size, return_sequences=True)
+        )
+        self.char_weight_layer = tf.keras.layers.Dense(1)
+        self.conv_1 = tf.keras.layers.Conv1D(self.embedding_size, 2)
+        self.conv_2 = tf.keras.layers.Conv1D(self.embedding_size, 2)
+
+    def call(self, inputs):
+        lstm_outs = inputs[0]
+        # lstm_out.shape: [batch_size, num_timesteps, num_lstm_units] (out of first lstm)
+
+        char_seq = inputs[1]
+        # char_seq.shape: [batch_size, num_chars, 1] (character indices)
+        embedded_chars = self.embedding(char_seq)  # zeros get masked
+        char_mask = embedded_chars._keras_mask
+        # embedded_chars.shape: [batch_size, num_chars, embedding_size]
+        contexted_chars = self.contexting(embedded_chars)
+        # contexted_chars.shape: [batch_size, num_chars, num_contexting_units]
+
+        expanded_ctx_chars = tf.expand_dims(contexted_chars, axis=1)
+        # expanded_ctx_chars.shape: [batch_size, num_timesteps(1), num_chars, num_contexting_units]
+        exp_lstm_outs = tf.expand_dims(lstm_outs, axis=2)
+        # exp_lstm_outs.shape: [batch_size, num_timesteps, num_chars(1), num_lstm_units]
+
+        lstms = tf.tile(exp_lstm_outs, [1, 1, expanded_ctx_chars.shape[2], 1])
+        # lstms.shape: [batch_size, num_timesteps, num_chars, num_lstm_units]
+        contexts = tf.tile(expanded_ctx_chars, [1, exp_lstm_outs.shape[1], 1, 1])
+        # contexts.shape: [batch_size, num_timesteps, num_chars, num_contexting_units]
+
+        # create time and char counters
+        batch_size = lstms.shape[0]
+        time_idxs = tf.expand_dims(tf.expand_dims(tf.expand_dims(tf.range(lstms.shape[1], dtype=tf.float32), axis=0), axis=-1), axis=-1)
+        time_idxs = tf.tile(time_idxs, [batch_size, 1, contexts.shape[2], 1])
+        # time_idxs.shape: [batch_size, num_timesteps, num_chars, 1]
+        char_idxs = tf.expand_dims(tf.expand_dims(tf.expand_dims(tf.range(contexts.shape[2], dtype=tf.float32), axis=0), axis=0), axis=-1)
+        char_idxs = tf.tile(char_idxs, [batch_size, lstms.shape[1], 1, 1])
+        # char_idxs.shape: [batch_size, num_timesteps, num_chars, 1]
+
+        char_weights_input = tf.concat([lstms, contexts, time_idxs, char_idxs], axis=-1)
+        # char_weights_input.shape: [batch_size, num_timesteps, num_chars, num_lstm_units+num_contexting_units+1+1]
+
+        char_weights = self.char_weight_layer(char_weights_input)  # probably add more layers???
+        # char_weights.shape: [batch_size, num_timesteps, num_chars, 1(bc to num_contexting_units)]
+
+        # weight every char in char_seq at every timestep
+        weighted_chars = tf.multiply(char_weights, contexts)
+        # weighted_chars.shape: [batch_size, num_timesteps, num_chars, num_contexting_units]
+        convolved_1 = self.conv_1(weighted_chars)
+        # convolved_1.shape: [batch_size, num_timesteps, num_chars-1, num_filters]
+
+        convolved_2 = self.conv_2(convolved_1)
+        # convolved_2.shape: [batch_size, num_timesteps, num_chars-2, num_filters]
+
+        final_embedding = tf.reduce_max(convolved_2, axis=-2)
+        # final_embedding.shape: [batch_size, num_timesteps, num_filters]
+
+        return final_embedding, char_weights

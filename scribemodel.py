@@ -6,6 +6,8 @@ tfd = tfp.distributions
 import window
 import os
 
+def apply_mask(tensor, mask):
+    return tf.where(tf.expand_dims(mask, axis=-1), tensor, tf.zeros_like(tensor))
 
 def coords_from_offsets(offsets):
     if tf.is_tensor(offsets):
@@ -31,8 +33,8 @@ class Model(tf.keras.Model):
         self.bias = 0  # unbiased predictions, higher bias means cleaner predictions
         self.hidden_size = hidden_size
         self.masking = tf.keras.layers.Masking(mask_value=0.)
-        self.window_layer = window.AttentionLayer()
         self.alphabet = "!'(),-./0123456789:?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        self.window_layer = window.AttentionLayer(len(self.alphabet))
         self.lstms = []
         self.dense_outs = []
         for i in range(num_lstms):
@@ -53,20 +55,27 @@ class Model(tf.keras.Model):
         y = tf.zeros_like(self.out_bias)
         hidden_state = inputs[0]
         char_seq = inputs[1]
+        mask = self.masking.compute_mask(hidden_state)
+        # mask.shape: [batch_size, num_timesteps]
+
         for layer in range(self.num_lstms):
             if layer == 1:  # second layer
                 # compute window
-                win = self.window_layer((hidden_state, char_seq))
+                win = self.window_layer((apply_mask(hidden_state, mask), char_seq))
                 alphabet_window = win[0]
                 hidden_state = tf.concat([hidden_state, alphabet_window], axis=-1)
-
             hidden_state = self.lstms[layer](hidden_state)
-            y = y + self.dense_outs[layer](hidden_state)
+            # hidden_state.shape: [batch_size, num_timesteps, lstm_size(256/328)]
+            peephole = self.dense_outs[layer](hidden_state)
+            y = y + peephole
 
         y = y + self.out_bias
 
         # bring certain parts of outputs to desired numerical range
         pred_params = self.process_network_output(y, bias=self.bias)
+
+        # masking
+        pred_params = apply_mask(pred_params, mask)
 
         return pred_params, win
 
@@ -75,6 +84,9 @@ class Model(tf.keras.Model):
         # apply processing to bring certain parts of
         # outputs to desired numerical range
         # for later use as parameters for mixture density layer#
+        p= False
+        if tf.reduce_sum(network_y).numpy() == 0:
+            p = True
 
         k = self.k_components
         eos_probs = tf.expand_dims(1/(1+tf.exp(network_y[:, :, -1])), axis=-1)  # modified sigmoid
@@ -85,6 +97,9 @@ class Model(tf.keras.Model):
 
         # concat to recreate shape
         processed_output = tf.concat([component_weights, correlations, means, std_devs, eos_probs], axis=2)
+        if p:
+            print(network_y)
+            print(processed_output)
         return processed_output
 
     def is_predict_finished(self, win):
@@ -151,15 +166,13 @@ class Model(tf.keras.Model):
             # pred_param, win = self.__call__((pred_offsets[-1], one_hot_chars))
 
         if type(char_seq) == str:
-            # convert string to one hot
+            # convert string to inices
             string_chars = char_seq
-            one_hot_chars = tf.expand_dims(tf.one_hot(indices=[self.alphabet.index(c) for c in char_seq],
-                                           depth=len(self.alphabet)), axis=0)
+            index_chars = tf.expand_dims(tf.constant([self.alphabet.index(c)+1 for c in char_seq]), axis=0)
         else:
-            # convert one hot to string
-            string_chars = "".join([self.alphabet[oh.index(1)] for oh in tf.squeeze(char_seq, axis=0).numpy()])
-            one_hot_chars = char_seq
-            pass
+            # convert indices to string
+            string_chars = "".join([self.alphabet[idx-1] for idx in char_seq])
+            index_chars = char_seq
         # one_hot_chars.shape: [batch_size(1), num_chars, len_alphabet]
 
         # define starting offset
@@ -170,7 +183,7 @@ class Model(tf.keras.Model):
 
         pred_finished = False
         while not pred_finished:
-            pred_param, win = self.__call__((pred_offsets[-1], one_hot_chars))
+            pred_param, win = self.__call__((pred_offsets[-1], index_chars))
             # pred_param.shape: [batch_size(1), num_timesteps(1), 6*k+1]
             # char_weight.shape: [batch_size(1), num_timesteps(1), num_chars, 1]
 
@@ -196,9 +209,7 @@ class Model(tf.keras.Model):
 
             # check if prediction should be stopped
             pred_finished = self.is_predict_finished(win)  # todo how to see when predict is finished?
-        #fig, ax = plt.subplots()
-        #ax.imshow(tf.concat(self.window_layer.outs, axis=0), aspect="auto", interpolation="none")
-        #plt.show()
+
         pred_params = tf.concat(pred_params, axis=1)
         # pred_params.shape: [batch_size(1), num_timesteps, 6*k+1]
         alphabet_windows = tf.concat(alphabet_windows, axis=0)
@@ -312,19 +323,20 @@ class Loss(tf.keras.losses.Loss):
         # component_weights (k) + correlations (k) + means ((2)*k) + std_devs ((2)*k) + eos_prob (1)
         # true_points.shape: [batch_size, (num_timesteps), 3]
 
-        if isinstance(true_points, tf.RaggedTensor):
-            true_points = true_points.to_tensor()
-        if isinstance(pred_params, tf.RaggedTensor):
-            pred_params = pred_params.to_tensor()
+        mask = self.masking.compute_mask(true_points)
+        # mask.shape: [batch_size, num_timesteps]
 
         mixture, bernoulli = create_dists(pred_params)
 
         mixture_prob = mixture.log_prob(true_points[:, :, :2])
         bernoulli_prob = bernoulli.log_prob(true_points[:, :, 2])
-        loss = - mixture_prob - bernoulli_prob  # [batch_size, num_timesteps]
+        losses = - mixture_prob - bernoulli_prob  # [batch_size, num_timesteps]
 
-        nan_free_loss = tf.where(tf.math.is_nan(loss), tf.zeros_like(loss), loss)
-        batch_losses = tf.math.reduce_sum(nan_free_loss, axis=1, keepdims=True)  # [batch_size]
+        # masking
+        losses = apply_mask(losses, mask)
+        # remove nans
+        losses = tf.where(tf.math.is_nan(losses), tf.zeros_like(losses), losses)
+        batch_losses = tf.math.reduce_sum(losses, axis=1, keepdims=True)  # [batch_size]
         total_loss = tf.math.reduce_mean(batch_losses, axis=0, keepdims=True)  # []
 
         return total_loss

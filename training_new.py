@@ -1,6 +1,7 @@
 import scribemodel
 import scribemodel as scribe
 import tensorflow as tf
+import numpy as np
 import os
 
 base_path = "C:/Users/miron/Git/scribeAI"
@@ -54,19 +55,26 @@ def pad_person_sets(person_sets):
                 bucket_char_lens[idx] = char_len
     bucket_seq_lens = list(reversed(bucket_seq_lens))
     bucket_char_lens = list(reversed(bucket_char_lens))
+    bucket_char_lens = [max(3, l) for l in bucket_char_lens]
     pad_exp_dsets = []
     for person_set in person_sets:
         set_as_numpy = list(person_set.as_numpy_iterator())
         pad_repeats = len(bucket_seq_lens) - len(set_as_numpy)
-        pad = [((tf.zeros((1, 3)), tf.zeros((1, 72))), tf.zeros((1, 3)))]
+        pad = [((np.zeros((1, 3)), np.zeros((1))), np.zeros((1, 3)))]
+        #pad = [(([[0, 0, 0]], [0]), [[0, 0, 0]])]
         exp_numpy = pad * pad_repeats + set_as_numpy
 
         def pad_numpy(x, seq_len, char_len):
-            seq_rep = seq_len-x[0][0].shape[0]
-            char_rep = char_len-x[0][1].shape[0]
-            seq_pad = tf.repeat(tf.zeros((1, 3)), repeats=seq_rep, axis=0)
-            char_pad = tf.repeat(tf.zeros((1, 72)), repeats=char_rep, axis=0)
-            return (tf.concat([x[0][0], seq_pad], axis=0), tf.concat([x[0][1], char_pad], axis=0)), tf.concat([x[1], seq_pad], axis=0)
+            #seq_rep = seq_len-x[0][0].shape[0]
+            seq_rep = seq_len-len(x[0][0])
+            #char_rep = char_len-x[0][1].shape[0]
+            char_rep = char_len-len(x[0][1])
+            seq_pad = np.repeat(np.zeros((1, 3)), repeats=seq_rep, axis=0)
+            #seq_pad = seq_rep * [[0, 0, 0]]
+            char_pad = np.repeat(np.zeros((1)), repeats=char_rep, axis=0)
+            #char_pad = char_rep * [0]
+            return (np.concatenate([x[0][0], seq_pad]), np.concatenate([x[0][1], char_pad])), np.concatenate([x[1], seq_pad])
+            #return (x[0][0] + seq_pad, x[0][1] + char_pad), x[1] + seq_pad
 
         pad_exp_numpy = list(map(pad_numpy, exp_numpy, bucket_seq_lens, bucket_char_lens))
         pad_exp_ds = tf.data.Dataset.from_tensors(pad_exp_numpy[0])
@@ -115,7 +123,7 @@ model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
     save_weights_only=True,
     verbose=1,
     save_freq=20)
-
+arr = list(test_for_priming.as_numpy_iterator())
 predict_callback = scribemodel.PredictCallback(model, test_for_priming, base_path, run_name)
 
 model.compile(optimizer='adam',

@@ -7,8 +7,8 @@ import json
 examples = {}
 means = []
 
-read_path = "csv/write/"
-write_path = "datasets/test"
+read_path = "csv/split/"
+write_path = "datasets/train"
 
 # alphabet = "0123456789,.!?'():- ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 # alphabet = " !'(),-.0123456789:?ABCDEFGHIJKLMNOPQRSTUVWXYabcdefghijklmnopqrstuvwxyz"
@@ -56,14 +56,14 @@ for obj in read_dir:
                     prev_y = point["y"]
 
                 chars = line["text"].replace(" ", "")
-                indices = [alphabet.index(char) for char in chars]
-                one_hot_chars = tf.one_hot(indices, depth=len(alphabet)).numpy()
+                indices = [alphabet.index(char)+1 for char in chars]
+                # one_hot_chars = tf.one_hot(indices, depth=len(alphabet)).numpy()
 
                 if line["person"] not in examples.keys():
                     examples[line["person"]] = {"strokes": [], "chars": []}
 
                 examples[line["person"]]["strokes"].append(strokes_list)
-                examples[line["person"]]["chars"].append(one_hot_chars)
+                examples[line["person"]]["chars"].append(indices)
 
 
 for person in examples.keys():
