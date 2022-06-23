@@ -3,8 +3,7 @@ import scribemodel as scribe
 import tensorflow as tf
 import numpy as np
 import os
-
-base_path = "C:/Users/miron/Git/scribeAI"
+from local import *
 
 run_name = "miron"
 
@@ -13,8 +12,6 @@ test_dir = "datasets/test"
 
 train_files = os.listdir(train_dir)
 test_files = os.listdir(test_dir)
-print(train_files, test_files)
-
 
 def datasets_from_files(files, dir):
     sets = []
@@ -119,23 +116,23 @@ tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=os.path.join("logs
                                                       update_freq=5)
 
 model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
-    filepath=os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"),
+    filepath=os.path.join(BASE_DIR, "checkpoints", run_name, "weights.hdf5"),
     save_weights_only=True,
     verbose=1,
     save_freq=20)
 arr = list(test_for_priming.as_numpy_iterator())
-predict_callback = scribemodel.PredictCallback(model, test_for_priming, base_path, run_name)
+predict_callback = scribemodel.PredictCallback(model, test_for_priming, BASE_DIR, run_name)
 
 model.compile(optimizer='adam',
               loss=[scribe.Loss(), None, None],
               metrics=[['accuracy'], [None, None]],
               run_eagerly=True)
 
-if os.path.isfile(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5")):
+if os.path.isfile(os.path.join(BASE_DIR, "checkpoints", run_name, "weights.hdf5")):
     print("evaluating")
     model.evaluate(test_for_priming.unbatch().batch(batch_size=batch_size, drop_remainder=True).take(1), verbose=2)
     print("evaluated")
-    model.load_weights(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"))
+    model.load_weights(os.path.join(BASE_DIR, "checkpoints", run_name, "weights.hdf5"))
     print("loaded")
 print("fitting")
 model.fit(train_for_priming, validation_data=test_for_priming, epochs=50, callbacks=[tensorboard_callback, model_checkpoint_callback, predict_callback], verbose=1)
