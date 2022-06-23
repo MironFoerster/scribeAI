@@ -75,7 +75,7 @@ class Model(tf.keras.Model):
         pred_params = self.process_network_output(y, bias=self.bias)
 
         # masking
-        pred_params = apply_mask(pred_params, mask)
+        #pred_params = apply_mask(pred_params, mask)
 
         return pred_params, win
 
@@ -322,10 +322,9 @@ class Loss(tf.keras.losses.Loss):
         # last dimension is made up of following values in order:
         # component_weights (k) + correlations (k) + means ((2)*k) + std_devs ((2)*k) + eos_prob (1)
         # true_points.shape: [batch_size, (num_timesteps), 3]
-
-        mask = self.masking.compute_mask(true_points)
-        # mask.shape: [batch_size, num_timesteps]
-
+        #print(pred_params_and_mask)
+        #pred_params = pred_params_and_mask[0]
+        #mask = pred_params_and_mask[1]
         mixture, bernoulli = create_dists(pred_params)
 
         mixture_prob = mixture.log_prob(true_points[:, :, :2])
@@ -333,7 +332,7 @@ class Loss(tf.keras.losses.Loss):
         losses = - mixture_prob - bernoulli_prob  # [batch_size, num_timesteps]
 
         # masking
-        losses = apply_mask(losses, mask)
+        #losses = apply_mask(losses, mask)
         # remove nans
         losses = tf.where(tf.math.is_nan(losses), tf.zeros_like(losses), losses)
         batch_losses = tf.math.reduce_sum(losses, axis=1, keepdims=True)  # [batch_size]
