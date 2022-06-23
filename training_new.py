@@ -5,7 +5,7 @@ import numpy as np
 import os
 from local import *
 
-run_name = "miron"
+run_name = "final"
 
 train_dir = "datasets/train"
 test_dir = "datasets/test"
@@ -104,6 +104,9 @@ def data_for_priming(datasets_list, batch_size):
 
 train_sets = datasets_from_files(train_files, train_dir)
 test_sets = datasets_from_files(test_files, test_dir)
+
+train_sets = train_sets + test_sets
+
 batch_size = 20
 train_for_priming = data_for_priming(train_sets, batch_size)
 test_for_priming = data_for_priming(test_sets, batch_size)
@@ -120,7 +123,7 @@ model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
     save_weights_only=True,
     verbose=1,
     save_freq=20)
-arr = list(test_for_priming.as_numpy_iterator())
+
 predict_callback = scribemodel.PredictCallback(model, test_for_priming, BASE_DIR, run_name)
 
 model.compile(optimizer='adam',
@@ -135,5 +138,5 @@ if os.path.isfile(os.path.join(BASE_DIR, "checkpoints", run_name, "weights.hdf5"
     model.load_weights(os.path.join(BASE_DIR, "checkpoints", run_name, "weights.hdf5"))
     print("loaded")
 print("fitting")
-model.fit(train_for_priming, validation_data=test_for_priming, epochs=50, callbacks=[tensorboard_callback, model_checkpoint_callback, predict_callback], verbose=1)
+model.fit(train_for_priming, epochs=50, callbacks=[tensorboard_callback, model_checkpoint_callback, predict_callback], verbose=1)
 # validation_data=test_batched,

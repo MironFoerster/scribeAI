@@ -7,8 +7,8 @@ import json
 examples = {}
 means = []
 
-read_path = "csv/split/"
-write_path = "datasets/train"
+read_path = "csv/write/"
+write_path = "datasets/test"
 
 # alphabet = "0123456789,.!?'():- ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 # alphabet = " !'(),-.0123456789:?ABCDEFGHIJKLMNOPQRSTUVWXYabcdefghijklmnopqrstuvwxyz"
