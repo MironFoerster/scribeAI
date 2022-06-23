@@ -3,7 +3,10 @@ import scribemodel as scribe
 import tensorflow as tf
 import numpy as np
 import os
-from local import *
+from inspect import getsourcefile
+from os.path import abspath
+
+BASE_DIR, _ = os.path.split(abspath(getsourcefile(lambda:0)))
 
 run_name = "miron"
 
