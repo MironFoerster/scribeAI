@@ -154,6 +154,7 @@ class AttentionLayer(tf.keras.layers.Layer):
     def __init__(self, len_alphabet):
         super().__init__()
         self.embedding_size = len_alphabet//2
+        # len_alphabet + 1 because indices are always one higher
         self.embedding = tf.keras.layers.Embedding(input_dim=len_alphabet+1, output_dim=self.embedding_size, mask_zero=True)
         self.contexting = tf.keras.layers.Bidirectional(
             layer=tf.keras.layers.GRU(self.embedding_size, return_sequences=True)
@@ -163,12 +164,15 @@ class AttentionLayer(tf.keras.layers.Layer):
         self.conv_2 = tf.keras.layers.Conv1D(self.embedding_size, 2)
 
     def call(self, inputs):
+        #print(inputs)
         lstm_outs = inputs[0]
+        #print(lstm_outs)
         # lstm_out.shape: [batch_size, num_timesteps, num_lstm_units] (out of first lstm)
 
         char_seq = inputs[1]
         # char_seq.shape: [batch_size, num_chars, 1] (character indices)
         embedded_chars = self.embedding(char_seq)  # zeros get masked
+        #print(embedded_chars)
         char_mask = embedded_chars._keras_mask
         # embedded_chars.shape: [batch_size, num_chars, embedding_size]
         contexted_chars = self.contexting(embedded_chars)
@@ -194,6 +198,7 @@ class AttentionLayer(tf.keras.layers.Layer):
         # char_idxs.shape: [batch_size, num_timesteps, num_chars, 1]
 
         char_weights_input = tf.concat([lstms, contexts, time_idxs, char_idxs], axis=-1)
+        #print(char_weights_input)
         # char_weights_input.shape: [batch_size, num_timesteps, num_chars, num_lstm_units+num_contexting_units+1+1]
 
         char_weights = self.char_weight_layer(char_weights_input)  # probably add more layers???
@@ -202,6 +207,7 @@ class AttentionLayer(tf.keras.layers.Layer):
         # weight every char in char_seq at every timestep
         weighted_chars = tf.multiply(char_weights, contexts)
         # weighted_chars.shape: [batch_size, num_timesteps, num_chars, num_contexting_units]
+
         convolved_1 = self.conv_1(weighted_chars)
         # convolved_1.shape: [batch_size, num_timesteps, num_chars-1, num_filters]
 

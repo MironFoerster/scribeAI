@@ -19,7 +19,7 @@ def datasets_from_files(files, dir ):
 
     for file in files:
         path = os.path.join(dir, file)
-        train_data = tf.data.experimental.load(path)
+        train_data = tf.data.Dataset.load(path)
         train_data = train_data.map(lambda base: ((base["strokes"][:-1], base["chars"]), base["strokes"][1:]))
         sets.append(train_data)
     return sets

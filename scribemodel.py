@@ -57,13 +57,13 @@ class Model(tf.keras.Model):
         char_seq = inputs[1]
         mask = self.masking.compute_mask(hidden_state)
         # mask.shape: [batch_size, num_timesteps]
-
         for layer in range(self.num_lstms):
             if layer == 1:  # second layer
                 # compute window
                 win = self.window_layer((apply_mask(hidden_state, mask), char_seq))
-                alphabet_window = win[0]
-                hidden_state = tf.concat([hidden_state, alphabet_window], axis=-1)
+                #print(win)
+                window_embedding = win[0]
+                hidden_state = tf.concat([hidden_state, window_embedding], axis=-1)
             hidden_state = self.lstms[layer](hidden_state)
             # hidden_state.shape: [batch_size, num_timesteps, lstm_size(256/328)]
             peephole = self.dense_outs[layer](hidden_state)
@@ -98,8 +98,9 @@ class Model(tf.keras.Model):
         # concat to recreate shape
         processed_output = tf.concat([component_weights, correlations, means, std_devs, eos_probs], axis=2)
         if p:
-            print(network_y)
-            print(processed_output)
+            pass
+            #print(network_y)
+            #print(processed_output)
         return processed_output
 
     def is_predict_finished(self, win):
@@ -138,16 +139,35 @@ class Model(tf.keras.Model):
             plt.show()
         plt.close("all")
 
-    def plot_windows(self, string_chars, alphabet_windows, char_weights, save=None):
+    def plot_windows(self, string_chars, window_embeddings, char_weights, save=None):
         fig, axs = plt.subplots(2, 1, layout='constrained')
         axs[0].imshow(char_weights, aspect="auto", interpolation="none")
         axs[0].set_xticks(np.arange(len(string_chars)), list(string_chars))
         axs[0].set_yticks(np.arange(char_weights.shape[0]))
         axs[0].set_title("window at char sequence")
 
-        axs[1].imshow(alphabet_windows, aspect="auto", interpolation='none')
+        alphabet_embeddings = []
+        for char_idx in range(len(self.alphabet)):  # 0 index is padding
+            alphabet_embedding = tf.expand_dims(self.window_layer.embedding(char_idx+1), axis=0)
+            # alphabet_embedding.shape: [1(len_alphabet), emb_size]
+            alphabet_embeddings.append(alphabet_embedding)
+        alphabet_embeddings = tf.concat(alphabet_embeddings, axis=0)
+        # alphabet_embeddings.shape: [len_alphabet, emb_size]
+
+        alphabet_embeddings = tf.expand_dims(alphabet_embeddings, axis=1)
+        # alphabet_embeddings.shape: [len_alphabet, 1(bc to num_timesteps), embedding_size]
+        window_embeddings = tf.expand_dims(window_embeddings, axis=0)
+        # window_embeddings.shape: [1(bc to len_alphabet), num_timesteps, embedding_size]
+
+        diffs = tf.math.abs(window_embeddings - alphabet_embeddings)
+        # diffs.shape: [len_alphabet, num_timesteps, embedding_size]
+
+        reduced = tf.math.reduce_sum(diffs, axis=2)
+        # reduced.shape: [len_alphabet, num_timesteps]
+
+        axs[1].imshow(tf.transpose(reduced), aspect="auto", interpolation='none')
         axs[1].set_xticks(np.arange(len(self.alphabet)), list(self.alphabet))
-        axs[1].set_yticks(np.arange(alphabet_windows.shape[0]))
+        axs[1].set_yticks(np.arange(window_embeddings.shape[1]))
         axs[1].set_title("window at alphabet")
 
         if type(save) == str:  # save_filename
@@ -165,6 +185,8 @@ class Model(tf.keras.Model):
             pass
             # pred_param, win = self.__call__((pred_offsets[-1], one_hot_chars))
 
+        # char indices are always one higher than their index in the alphabet
+        # so that none of them is zero and thus would get masked
         if type(char_seq) == str:
             # convert string to inices
             string_chars = char_seq
@@ -178,7 +200,7 @@ class Model(tf.keras.Model):
         # define starting offset
         pred_offsets = [tf.constant([[[0, 0, 0]]], dtype=tf.float32)]
         pred_params = []
-        alphabet_windows = []
+        window_embeddings = []
         char_weights = []
 
         pred_finished = False
@@ -186,7 +208,6 @@ class Model(tf.keras.Model):
             pred_param, win = self.__call__((pred_offsets[-1], index_chars))
             # pred_param.shape: [batch_size(1), num_timesteps(1), 6*k+1]
             # char_weight.shape: [batch_size(1), num_timesteps(1), num_chars, 1]
-
             # create dist and sample a single offset
             mixture, bernoulli = create_dists(pred_param)
             pred_offset_coords = mixture.sample()
@@ -194,9 +215,9 @@ class Model(tf.keras.Model):
             pred_offset = tf.concat([pred_offset_coords, tf.expand_dims(pred_offset_eos, axis=-1)], axis=-1)
             # pred_offset.shape: [batch_size(1), num_timesteps(1), 3]
 
-            # squeeze alphabet_window vector
-            alphabet_window = tf.squeeze(win[0], axis=0)
-            # alphabet_window.shape: [num_timesteps(1), len_alphabet]
+            # squeeze window_embedding vector
+            window_embedding = tf.squeeze(win[0], axis=0)
+            # window_embedding.shape: [num_timesteps(1), emb_size]
             # squeeze char_weight vector
             char_weight = tf.squeeze(tf.squeeze(win[1], axis=-1), axis=0)
             # char_weight.shape: [num_timesteps(1), num_chars]
@@ -204,7 +225,7 @@ class Model(tf.keras.Model):
             # append param, offset and char_weight to associated lists
             pred_params.append(pred_param)
             pred_offsets.append(pred_offset)
-            alphabet_windows.append(alphabet_window)
+            window_embeddings.append(window_embedding)
             char_weights.append(char_weight)
 
             # check if prediction should be stopped
@@ -212,8 +233,8 @@ class Model(tf.keras.Model):
 
         pred_params = tf.concat(pred_params, axis=1)
         # pred_params.shape: [batch_size(1), num_timesteps, 6*k+1]
-        alphabet_windows = tf.concat(alphabet_windows, axis=0)
-        # alphabet_windows.shape: [num_timesteps, len_alphabet]
+        window_embeddings = tf.concat(window_embeddings, axis=0)
+        # window_embeddings.shape: [num_timesteps, len_alphabet]
         char_weights = tf.concat(char_weights, axis=0)
         # char_weights.shape: [num_timesteps, num_chars]
 
@@ -227,7 +248,7 @@ class Model(tf.keras.Model):
 
         dist_img = self.img_from_mixture_dist(mixture, pred_points[:, 1:, :], img_size, dpu)
         self.plot_predictions(dist_img, pred_points, eos_probs=pred_params[:, :, -1], img_size=img_size, save=save)
-        self.plot_windows(string_chars, alphabet_windows, char_weights, save=save)
+        self.plot_windows(string_chars, window_embeddings, char_weights, save=save)
 
         # reset bias
         self.bias = 0

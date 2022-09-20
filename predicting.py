@@ -6,13 +6,13 @@ base_path = "C:/Users/miron/Git/scribeAI"
 
 run_name = "miron"
 
-test_dir = "datasets/miron"
+test_dir = "datasets/train"
 test_files = os.listdir(test_dir)
 test_set = None
 
 for file in test_files:
     path = os.path.join(test_dir, file)
-    test_data = tf.data.experimental.load(path)
+    test_data = tf.data.Dataset.load(path)
     test_data = test_data.map(lambda base: ((base["strokes"][:-1], base["chars"]), base["strokes"][1:]))
     if test_set is None:
         test_set = test_data
@@ -35,7 +35,8 @@ model.compile(optimizer='adam',
 model.evaluate(test_set.batch(batch_size=1).take(1), verbose=2)
 model.predict("freak")
 
-model.load_weights(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"))
+model.load_weights(os.path.join(base_path, "checkpoints", "external", "final.hdf5"))
+#model.load_weights(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"))
 model.evaluate(test_set.batch(batch_size=1).take(1), verbose=2)
 
 model.predict("freak")
