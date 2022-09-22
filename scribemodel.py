@@ -26,7 +26,7 @@ def coords_from_offsets(offsets):
 class Model(tf.keras.Model):
     def __init__(self, num_lstms=3, hidden_size=256):
         super().__init__()
-        self.counter = None
+        self.time_idx = 0
         self.figures_dir = "figures"
         self.num_lstms = num_lstms
         self.k_components = 20
@@ -59,6 +59,19 @@ class Model(tf.keras.Model):
         # mask.shape: [batch_size, num_timesteps]
         for layer in range(self.num_lstms):
             if layer == 1:  # second layer
+                if hidden_state.shape[1] == 1:
+                    batch_size = hidden_state.shape[0]
+                    time_idxs = tf.expand_dims(tf.expand_dims(tf.constant([self.time_idx], dtype=tf.float32), axis=0), axis=2)
+                    time_idxs = tf.tile(time_idxs, [batch_size, 1, 1])
+                    # time_idxs.shape: [batch_size(1), 1, 1]
+                    self.time_idx += 1
+                else:
+                    batch_size = hidden_state.shape[0]
+                    time_idxs = tf.expand_dims(tf.expand_dims(tf.range(hidden_state.shape[1], dtype=tf.float32), axis=0), axis=2)
+                    time_idxs = tf.tile(time_idxs, [batch_size, 1, 1])
+                    # time_idxs.shape: [batch_size, num_timesteps, 1]
+
+                hidden_state = tf.concat([hidden_state, time_idxs], axis=2)
                 # compute window
                 win = self.window_layer((apply_mask(hidden_state, mask), char_seq))
                 #print(win)
@@ -104,8 +117,7 @@ class Model(tf.keras.Model):
         return processed_output
 
     def is_predict_finished(self, win):
-        self.counter += 1
-        if self.counter > 100:
+        if self.time_idx > 100:
             return True
         else:
             return False
@@ -144,7 +156,7 @@ class Model(tf.keras.Model):
         axs[0].imshow(char_weights, aspect="auto", interpolation="none")
         axs[0].set_xticks(np.arange(len(string_chars)), list(string_chars))
         axs[0].set_yticks(np.arange(char_weights.shape[0]))
-        axs[0].set_title("window at char sequence")
+        axs[0].set_title("char sequence weights")
 
         alphabet_embeddings = []
         for char_idx in range(len(self.alphabet)):  # 0 index is padding
@@ -177,7 +189,7 @@ class Model(tf.keras.Model):
         plt.close("all")
 
     def predict(self, char_seq, primer=None, bias=1, save=None):  # todo implement priming
-        self.counter = 1  # only temporary for check if predict is finished
+        self.time_idx = 0 # only temporary for check if predict is finished
         self.reset_states()
         self.bias = bias
 
@@ -247,7 +259,7 @@ class Model(tf.keras.Model):
         dpu = 10  # dots per unit
 
         dist_img = self.img_from_mixture_dist(mixture, pred_points[:, 1:, :], img_size, dpu)
-        self.plot_predictions(dist_img, pred_points, eos_probs=pred_params[:, :, -1], img_size=img_size, save=save)
+        #self.plot_predictions(dist_img, pred_points, eos_probs=pred_params[:, :, -1], img_size=img_size, save=save)
         self.plot_windows(string_chars, window_embeddings, char_weights, save=save)
 
         # reset bias
