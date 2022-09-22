@@ -385,8 +385,8 @@ class PredictCallback(tf.keras.callbacks.Callback):
         self.base_path = base_path
         self.run_name = run_name
         self.pred_model.evaluate(dataset.unbatch().batch(batch_size=1).take(1), verbose=2)
-        self.pred_model.load_weights(os.path.join(self.base_path, "checkpoints", self.run_name, "weights.hdf5"))
-        self.pred_model.predict("hello", save="epoch{e:0>2}.png".format(e="test"))
+        #self.pred_model.load_weights(os.path.join(self.base_path, "checkpoints", self.run_name, "weights.hdf5"))
+        #self.pred_model.predict("hello", save="epoch{e:0>2}.png".format(e="test"))
 
     def on_epoch_end(self, epoch, logs=None):
         self.pred_model.load_weights(os.path.join(self.base_path, "checkpoints", self.run_name, "weights.hdf5"))
