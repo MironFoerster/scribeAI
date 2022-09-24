@@ -154,13 +154,17 @@ class AttentionLayer(tf.keras.layers.Layer):
     def __init__(self, len_alphabet):
         super().__init__()
         self.embedding_size = len_alphabet//2
-        self.embedding = tf.keras.layers.Embedding(input_dim=len_alphabet+1, output_dim=self.embedding_size, mask_zero=True)
+        # len_alphabet + 1 because indices are always one higher
+        self.embedding = tf.keras.layers.Embedding(input_dim=len_alphabet+1, output_dim=self.embedding_size, mask_zero=True, name="embedding")
         self.contexting = tf.keras.layers.Bidirectional(
-            layer=tf.keras.layers.GRU(self.embedding_size, return_sequences=True)
+            layer=tf.keras.layers.GRU(self.embedding_size, return_sequences=True, name="context_gru")
         )
-        self.char_weight_layer = tf.keras.layers.Dense(1)
-        self.conv_1 = tf.keras.layers.Conv1D(self.embedding_size, 2)
-        self.conv_2 = tf.keras.layers.Conv1D(self.embedding_size, 2)
+        self.char_weight_layers = [tf.keras.layers.Dense(8, "relu", name="char_weight_1"),
+                                   tf.keras.layers.Dense(8, "relu", name="char_weight_2"),
+                                   tf.keras.layers.Dense(8, "relu", name="char_weight_3"),
+                                   tf.keras.layers.Dense(1, "sigmoid", name="char_weight_final")]
+        self.conv_1 = tf.keras.layers.Conv1D(self.embedding_size, 2, name="conv1")
+        self.conv_2 = tf.keras.layers.Conv1D(self.embedding_size, 2, name="conv2")
 
     def call(self, inputs):
         lstm_outs = inputs[0]
@@ -188,20 +192,25 @@ class AttentionLayer(tf.keras.layers.Layer):
         batch_size = lstms.shape[0]
         time_idxs = tf.expand_dims(tf.expand_dims(tf.expand_dims(tf.range(lstms.shape[1], dtype=tf.float32), axis=0), axis=-1), axis=-1)
         time_idxs = tf.tile(time_idxs, [batch_size, 1, contexts.shape[2], 1])
+        # time counter is already included into the lstms
         # time_idxs.shape: [batch_size, num_timesteps, num_chars, 1]
         char_idxs = tf.expand_dims(tf.expand_dims(tf.expand_dims(tf.range(contexts.shape[2], dtype=tf.float32), axis=0), axis=0), axis=-1)
         char_idxs = tf.tile(char_idxs, [batch_size, lstms.shape[1], 1, 1])
         # char_idxs.shape: [batch_size, num_timesteps, num_chars, 1]
 
-        char_weights_input = tf.concat([lstms, contexts, time_idxs, char_idxs], axis=-1)
-        # char_weights_input.shape: [batch_size, num_timesteps, num_chars, num_lstm_units+num_contexting_units+1+1]
 
-        char_weights = self.char_weight_layer(char_weights_input)  # probably add more layers???
+        #char_weights_input = tf.concat([lstms, contexts, time_idxs, char_idxs], axis=-1)
+        char_weights_input = tf.concat([contexts, lstms, char_idxs], axis=-1)
+        # char_weights_input.shape: [batch_size, num_timesteps, num_chars, num_lstm_units+1+num_contexting_units+1]
+        char_weights = char_weights_input
+        for layer in self.char_weight_layers:
+            char_weights = layer(char_weights)
         # char_weights.shape: [batch_size, num_timesteps, num_chars, 1(bc to num_contexting_units)]
 
         # weight every char in char_seq at every timestep
         weighted_chars = tf.multiply(char_weights, contexts)
         # weighted_chars.shape: [batch_size, num_timesteps, num_chars, num_contexting_units]
+
         convolved_1 = self.conv_1(weighted_chars)
         # convolved_1.shape: [batch_size, num_timesteps, num_chars-1, num_filters]
 

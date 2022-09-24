@@ -7,8 +7,9 @@ import json
 examples = {}
 means = []
 
-read_path = "csv/write/"
-write_path = "datasets/test"
+
+read_path = "csv/split/"
+write_path = "datasets/full_train"
 
 # alphabet = "0123456789,.!?'():- ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 # alphabet = " !'(),-.0123456789:?ABCDEFGHIJKLMNOPQRSTUVWXYabcdefghijklmnopqrstuvwxyz"
@@ -18,24 +19,25 @@ char_dist = {}
 read_dir = os.scandir(read_path)
 
 # check alphabet
-for obj in read_dir:
-    if obj.is_dir():
-        with open(os.path.join(read_path, obj.name, "submits.csv")) as f:
-            reader = csv.DictReader(f, fieldnames=["strokes", "text", "person"], delimiter=';')
-            next(reader)  # skip the header
-            for line in reader:
-                for c in line["text"]:
-                    if c == " ":
-                        continue
-                    if c not in alphabet:
-                        char_dist[c] = 0
-                        alphabet += c
-                    char_dist[c] += 1
+if False:
+    for obj in read_dir:
+        if obj.is_dir():
+            with open(os.path.join(read_path, obj.name, "submits.csv")) as f:
+                reader = csv.DictReader(f, fieldnames=["strokes", "text", "person"], delimiter=';')
+                next(reader)  # skip the header
+                for line in reader:
+                    for c in line["text"]:
+                        if c == " ":
+                            continue
+                        if c not in alphabet:
+                            char_dist[c] = 0
+                            alphabet += c
+                        char_dist[c] += 1
 
 
-print(dict(sorted(char_dist.items(), key=lambda e: e[1])))
+    print(dict(sorted(char_dist.items(), key=lambda e: e[1])))
 
-print("".join(sorted(alphabet)))
+    print("".join(sorted(alphabet)))
 alphabet = "!'(),-./0123456789:?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 read_dir = os.scandir(read_path)
@@ -72,5 +74,5 @@ for person in examples.keys():
     examples[person]["chars"] = tf.ragged.constant(examples[person]["chars"], ragged_rank=1)
     dataset = tf.data.Dataset.from_tensor_slices(examples[person])
     path = os.path.join(write_path, person+".ds")
-    tf.data.experimental.save(dataset, path)
+    tf.data.Dataset.save(dataset, path)
 
