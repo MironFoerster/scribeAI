@@ -206,9 +206,6 @@ class AttentionLayer(tf.keras.layers.Layer):
         for layer in self.char_weight_layers:
             char_weights = layer(char_weights)
         # char_weights.shape: [batch_size, num_timesteps, num_chars, 1(bc to num_contexting_units)]
-        import matplotlib.pyplot as plt
-        im = tf.squeeze(char_weights[0, :, :, :], axis=2)
-        plt.imshow(im)
 
         # weight every char in char_seq at every timestep
         weighted_chars = tf.multiply(char_weights, contexts)

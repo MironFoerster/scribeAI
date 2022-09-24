@@ -43,8 +43,6 @@ class Model(tf.keras.Model):
         self.dense_outs = []
         for i in range(num_lstms):
             units = self.hidden_size
-            """if i == 1:  # second layer
-                units += len(self.alphabet)"""
             self.lstms.append(tf.keras.layers.LSTM(units=units,
                                                    return_sequences=True,
                                                    return_state=False,
@@ -129,10 +127,11 @@ class Model(tf.keras.Model):
 
     def plot_predictions(self, dist_img, pred_points, eos_probs, img_size):
         plt.figure("dist")
-        plt.imshow(dist_img, extent=(0, img_size[0], img_size[1], 0))  # (-0.5, img_size[0]-0.5, img_size[1]-0.5, -0.5))
         plt.gca().invert_yaxis()
+        plt.imshow(dist_img, extent=(0, img_size[0], img_size[1], 0))  # (-0.5, img_size[0]-0.5, img_size[1]-0.5, -0.5))
 
         plt.figure("full")
+        plt.gca().invert_yaxis()
         plt.imshow(dist_img, extent=(0, img_size[0], img_size[1], 0))  # (-0.5, img_size[0]-0.5, img_size[1]-0.5, -0.5))
         stroke_x = []
         stroke_y = []
@@ -149,9 +148,10 @@ class Model(tf.keras.Model):
         plt.scatter(x=pred_points[0, :, 0].numpy(),
                    y=pred_points[0, :, 1].numpy(),
                    sizes=eos_probs[0, :] * 1000)
-        plt.gca().invert_yaxis()
+
 
         plt.figure("strokes")
+        plt.gca().invert_yaxis()
         stroke_x = []
         stroke_y = []
         for point in pred_points[0, :, :].numpy():
@@ -164,7 +164,6 @@ class Model(tf.keras.Model):
                 stroke_x = []
                 stroke_y = []
         plt.plot(stroke_x, stroke_y, 'b-', linewidth=2.0)
-        plt.gca().invert_yaxis()
 
         return plt.figure("dist"), plt.figure("full"), plt.figure("strokes")
 
@@ -272,7 +271,7 @@ class Model(tf.keras.Model):
         # create full sequence distributions from network output
         mixture, bernoulli = create_dists(pred_params)
 
-        img_size = (100, 10)
+        img_size = (10, 10)
         dpu = 1  # dots per unit
 
         #create plots
@@ -422,7 +421,7 @@ class PredictCallback(tf.keras.callbacks.Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         self.pred_model.load_weights(os.path.join(self.base_path, "checkpoints", self.run_name, "weights.hdf5"))
-        strokes, full, dists, word_wins, alph_wins = self.pred_model.predict("hello")
+        pred_points, strokes, full, dists, word_wins, alph_wins = self.pred_model.predict("hello")
 
         with self.writer.as_default():
             tf.summary.image("Strokes", plot_to_image(strokes), step=epoch)

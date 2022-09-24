@@ -33,12 +33,12 @@ model.compile(optimizer='adam',
               loss=[scribe.Loss(), None, None],
               metrics=[['accuracy'], [None, None]],
               run_eagerly=True)
+#model.evaluate(test_set.batch(batch_size=1).take(1), verbose=2)
+#pred_points, strokes, full, dists, word_wins, alph_wins = model.predict("freak")
+#plt.show()
 model.evaluate(test_set.batch(batch_size=1).take(1), verbose=2)
-pred_points, strokes, full, dists, word_wins, alph_wins = model.predict("freak")
-plt.show()
 
 model.load_weights(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"))
-model.evaluate(test_set.batch(batch_size=1).take(1), verbose=2)
 
-pred_points, strokes, full, dists, word_wins, alph_wins = model.predict("freak")
+pred_points, strokes, full, dists, word_wins, alph_wins = model.predict("hello")
 plt.show()
