@@ -126,8 +126,8 @@ def data_for_priming(datasets_list, batch_size):
 train_sets = datasets_from_files(train_files, train_dir)
 test_sets = datasets_from_files(test_files, test_dir)
 batch_size = 2
-train_for_priming = data_for_priming(train_sets[:5], batch_size)
-test_for_priming = data_for_priming(test_sets[:5], batch_size)
+train_for_priming = data_for_priming(train_sets[:2], batch_size)
+test_for_priming = data_for_priming(test_sets[:2], batch_size)
 model = scribe.Model()
 
 tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=os.path.join("logs", run_name),
@@ -157,6 +157,6 @@ if os.path.isfile(os.path.join(BASE_DIR, "checkpoints", run_name, "weights.hdf5"
     model.load_weights(os.path.join(BASE_DIR, "checkpoints", run_name, "weights.hdf5"))
     print("loaded")
 print("fitting")
-# , predict_callback
-model.fit(train_for_priming, validation_data=test_for_priming.take(10), epochs=50, callbacks=[tensorboard_callback, model_checkpoint_callback], verbose=1)
+
+model.fit(train_for_priming, validation_data=test_for_priming, epochs=50, callbacks=[tensorboard_callback, model_checkpoint_callback, predict_callback], verbose=1)
 # validation_data=test_batched,

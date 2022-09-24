@@ -1,3 +1,4 @@
+import io
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -6,8 +7,10 @@ tfd = tfp.distributions
 import window
 import os
 
+
 def apply_mask(tensor, mask):
     return tf.where(tf.expand_dims(mask, axis=-1), tensor, tf.zeros_like(tensor))
+
 
 def coords_from_offsets(offsets):
     if tf.is_tensor(offsets):
@@ -22,6 +25,7 @@ def coords_from_offsets(offsets):
         coords.append(tf.concat([coord, tf.expand_dims(offset[:, :, -1], axis=-1)], axis=-1))
     coords = tf.concat(coords, axis=1)
     return coords
+
 
 class Model(tf.keras.Model):
     def __init__(self, num_lstms=3, hidden_size=256):
@@ -189,7 +193,7 @@ class Model(tf.keras.Model):
         plt.close("all")
 
     def predict(self, char_seq, primer=None, bias=1, save=None):  # todo implement priming
-        self.time_idx = 0 # only temporary for check if predict is finished
+        self.time_idx = 0  # only temporary for check if predict is finished
         self.reset_states()
         self.bias = bias
 
@@ -308,6 +312,21 @@ class Model(tf.keras.Model):
         return dist_img
 
 
+def plot_to_image(figure):
+    # Save the plot to a PNG in memory.
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    # Closing the figure prevents it from being displayed directly inside
+    # the notebook.
+    plt.close(figure)
+    buf.seek(0)
+    # Convert PNG buffer to TF image
+    image = tf.image.decode_png(buf.getvalue(), channels=4)
+    # Add the batch dimension
+    image = tf.expand_dims(image, 0)
+    return image
+
+
 def covar_mat_from_corr_and_stddev(corrs, devs):
     flat_corrs = tf.reshape(corrs, [-1])
     flat_corr_mats = tf.map_fn(lambda x: tf.constant([[1, x.numpy()], [x.numpy(), 1]]), flat_corrs)
@@ -385,9 +404,15 @@ class PredictCallback(tf.keras.callbacks.Callback):
         self.base_path = base_path
         self.run_name = run_name
         self.pred_model.evaluate(dataset.unbatch().batch(batch_size=1).take(1), verbose=2)
-        #self.pred_model.load_weights(os.path.join(self.base_path, "checkpoints", self.run_name, "weights.hdf5"))
-        #self.pred_model.predict("hello", save="epoch{e:0>2}.png".format(e="test"))
+        self.writer = tf.summary.create_file_writer(os.path.join(base_path, "logs", run_name, "predicts"))
 
     def on_epoch_end(self, epoch, logs=None):
         self.pred_model.load_weights(os.path.join(self.base_path, "checkpoints", self.run_name, "weights.hdf5"))
-        self.pred_model.predict("hello", save="epoch{e:0>2}.svg".format(e=epoch))
+        strokes, strokes_dists, dists, word_wins, alph_wins = self.pred_model.predict("hello", save="epoch{e:0>2}.svg".format(e=epoch))
+
+        with self.writer.as_default():
+            tf.summary.image("Strokes", strokes, step=epoch)
+            tf.summary.image("Strokes Distributions", strokes, step=epoch)
+            tf.summary.image("Distributions", strokes, step=epoch)
+            tf.summary.image("Word Windows", strokes, step=epoch)
+            tf.summary.image("Alphabet Windows", strokes, step=epoch)

@@ -4,7 +4,7 @@ import os
 
 base_path = "C:/Users/miron/Git/scribeAI"
 
-run_name = "miron"
+run_name = "fixed_win_local"
 
 test_dir = "datasets/train"
 test_files = os.listdir(test_dir)
@@ -35,8 +35,7 @@ model.compile(optimizer='adam',
 model.evaluate(test_set.batch(batch_size=1).take(1), verbose=2)
 model.predict("freak")
 print("hela")
-model.load_weights(os.path.join(base_path, "checkpoints", "external", "final.hdf5"))
-#model.load_weights(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"))
+model.load_weights(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"))
 model.evaluate(test_set.batch(batch_size=1).take(1), verbose=2)
 
 model.predict("freak")
