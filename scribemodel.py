@@ -43,14 +43,16 @@ class Model(tf.keras.Model):
         self.dense_outs = []
         for i in range(num_lstms):
             units = self.hidden_size
-            if i == 1:  # second layer
-                units += len(self.alphabet)
+            """if i == 1:  # second layer
+                units += len(self.alphabet)"""
             self.lstms.append(tf.keras.layers.LSTM(units=units,
                                                    return_sequences=True,
                                                    return_state=False,
-                                                   stateful=True))
+                                                   stateful=True,
+                                                   name="lstm"+str(i)))
             self.dense_outs.append(tf.keras.layers.Dense(units=6*self.k_components+1,
-                                                         use_bias=False))
+                                                         use_bias=False,
+                                                         name="dense_out"+str(i)))
 
         self.out_bias = tf.Variable(tf.zeros_initializer()(shape=[6*self.k_components+1], dtype=tf.float32))
 
@@ -63,7 +65,7 @@ class Model(tf.keras.Model):
         # mask.shape: [batch_size, num_timesteps]
         for layer in range(self.num_lstms):
             if layer == 1:  # second layer
-                if hidden_state.shape[1] == 1:
+                if hidden_state.shape[1] == 1:  # single batch
                     batch_size = hidden_state.shape[0]
                     time_idxs = tf.expand_dims(tf.expand_dims(tf.constant([self.time_idx], dtype=tf.float32), axis=0), axis=2)
                     time_idxs = tf.tile(time_idxs, [batch_size, 1, 1])
@@ -78,7 +80,6 @@ class Model(tf.keras.Model):
                 hidden_state = tf.concat([hidden_state, time_idxs], axis=2)
                 # compute window
                 win = self.window_layer((apply_mask(hidden_state, mask), char_seq))
-                #print(win)
                 window_embedding = win[0]
                 hidden_state = tf.concat([hidden_state, window_embedding], axis=-1)
             hidden_state = self.lstms[layer](hidden_state)
@@ -126,42 +127,58 @@ class Model(tf.keras.Model):
         else:
             return False
 
-    def plot_predictions(self, dist_img=None, pred_points=None, eos_probs=None, img_size=None, save=None):
-        fig, ax = plt.subplots()
-        if dist_img is not None:
-            ax.imshow(dist_img, extent=(0, img_size[0], img_size[1], 0))#(-0.5, img_size[0]-0.5, img_size[1]-0.5, -0.5))
-        if pred_points is not None:
-            stroke_x = []
-            stroke_y = []
-            for point in pred_points[0, :, :].numpy():
-                stroke_x.append(point[0])
-                stroke_y.append(point[1])
-
-                if point[2] == 1:  # if eos == 1
-                    last_x = point[0]
-                    ax.plot(stroke_x, stroke_y, 'b-', linewidth=2.0)
-                    stroke_x = []
-                    stroke_y = []
-            ax.plot(stroke_x, stroke_y, 'b-', linewidth=2.0)
-
-        if eos_probs is not None:
-            ax.scatter(x=pred_points[0, :, 0].numpy(),
-                       y=pred_points[0, :, 1].numpy(),
-                       sizes=eos_probs[0, :]*1000)
+    def plot_predictions(self, dist_img, pred_points, eos_probs, img_size):
+        plt.figure("dist")
+        plt.imshow(dist_img, extent=(0, img_size[0], img_size[1], 0))  # (-0.5, img_size[0]-0.5, img_size[1]-0.5, -0.5))
         plt.gca().invert_yaxis()
-        if type(save) == str:  # save_filename
-            plt.savefig(os.path.join(self.figures_dir, "preds", save))
-        else:
-            plt.show()
-        plt.close("all")
 
-    def plot_windows(self, string_chars, window_embeddings, char_weights, save=None):
-        fig, axs = plt.subplots(2, 1, layout='constrained')
-        axs[0].imshow(char_weights, aspect="auto", interpolation="none")
-        axs[0].set_xticks(np.arange(len(string_chars)), list(string_chars))
-        axs[0].set_yticks(np.arange(char_weights.shape[0]))
-        axs[0].set_title("char sequence weights")
+        plt.figure("full")
+        plt.imshow(dist_img, extent=(0, img_size[0], img_size[1], 0))  # (-0.5, img_size[0]-0.5, img_size[1]-0.5, -0.5))
+        stroke_x = []
+        stroke_y = []
+        for point in pred_points[0, :, :].numpy():
+            stroke_x.append(point[0])
+            stroke_y.append(point[1])
 
+            if point[2] == 1:  # if eos == 1
+                last_x = point[0]
+                plt.plot(stroke_x, stroke_y, 'b-', linewidth=2.0)
+                stroke_x = []
+                stroke_y = []
+        plt.plot(stroke_x, stroke_y, 'b-', linewidth=2.0)
+        plt.scatter(x=pred_points[0, :, 0].numpy(),
+                   y=pred_points[0, :, 1].numpy(),
+                   sizes=eos_probs[0, :] * 1000)
+        plt.gca().invert_yaxis()
+
+        plt.figure("strokes")
+        stroke_x = []
+        stroke_y = []
+        for point in pred_points[0, :, :].numpy():
+            stroke_x.append(point[0])
+            stroke_y.append(point[1])
+
+            if point[2] == 1:  # if eos == 1
+                last_x = point[0]
+                plt.plot(stroke_x, stroke_y, 'b-', linewidth=2.0)
+                stroke_x = []
+                stroke_y = []
+        plt.plot(stroke_x, stroke_y, 'b-', linewidth=2.0)
+        plt.gca().invert_yaxis()
+
+        return plt.figure("dist"), plt.figure("full"), plt.figure("strokes")
+
+    def plot_windows(self, string_chars, window_embeddings, char_weights):
+        plt.figure("word_wins")
+        #ax = plt.figure("word_wins").get_axes()[0]
+        plt.imshow(char_weights, aspect="auto", interpolation="none")
+        #ax.set_xticks(np.arange(len(string_chars)), list(string_chars))
+        plt.xticks(np.arange(len(string_chars)), list(string_chars))
+        plt.yticks(np.arange(char_weights.shape[0]))
+        plt.title("char sequence weights")
+
+        plt.figure("alph_wins")
+        #ax = plt.figure("alph_wins").get_axes()[0]
         alphabet_embeddings = []
         for char_idx in range(len(self.alphabet)):  # 0 index is padding
             alphabet_embedding = tf.expand_dims(self.window_layer.embedding(char_idx+1), axis=0)
@@ -181,18 +198,14 @@ class Model(tf.keras.Model):
         reduced = tf.math.reduce_sum(diffs, axis=2)
         # reduced.shape: [len_alphabet, num_timesteps]
 
-        axs[1].imshow(tf.transpose(reduced), aspect="auto", interpolation='none')
-        axs[1].set_xticks(np.arange(len(self.alphabet)), list(self.alphabet))
-        axs[1].set_yticks(np.arange(window_embeddings.shape[1]))
-        axs[1].set_title("window at alphabet")
+        plt.imshow(tf.transpose(reduced), aspect="auto", interpolation='none')
+        plt.xticks(np.arange(len(self.alphabet)), list(self.alphabet))
+        plt.yticks(np.arange(window_embeddings.shape[1]))
+        plt.title("window at alphabet")
 
-        if type(save) == str:  # save_filename
-            plt.savefig(os.path.join(self.figures_dir, "wins", save))
-        else:
-            plt.show()
-        plt.close("all")
+        return plt.figure("word_wins"), plt.figure("alph_wins")
 
-    def predict(self, char_seq, primer=None, bias=1, save=None):  # todo implement priming
+    def predict(self, char_seq, primer=None, bias=1):  # todo implement priming
         self.time_idx = 0  # only temporary for check if predict is finished
         self.reset_states()
         self.bias = bias
@@ -260,15 +273,16 @@ class Model(tf.keras.Model):
         mixture, bernoulli = create_dists(pred_params)
 
         img_size = (100, 10)
-        dpu = 10  # dots per unit
+        dpu = 1  # dots per unit
 
+        #create plots
         dist_img = self.img_from_mixture_dist(mixture, pred_points[:, 1:, :], img_size, dpu)
-        #self.plot_predictions(dist_img, pred_points, eos_probs=pred_params[:, :, -1], img_size=img_size, save=save)
-        self.plot_windows(string_chars, window_embeddings, char_weights, save=save)
+        strokes, full, dists = self.plot_predictions(dist_img, pred_points, eos_probs=pred_params[:, :, -1], img_size=img_size)
+        word_wins, alph_wins = self.plot_windows(string_chars, window_embeddings, char_weights)
 
         # reset bias
         self.bias = 0
-        return pred_points
+        return pred_points, strokes, full, dists, word_wins, alph_wins
 
     def img_from_mixture_dist(self, mixture, pred_points, img_size, dpu):  # fixme: something is not working properly i puppose the offset stuff
         # pred_points.shape: [batchsize(1), timesteps, 3]
@@ -408,11 +422,11 @@ class PredictCallback(tf.keras.callbacks.Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         self.pred_model.load_weights(os.path.join(self.base_path, "checkpoints", self.run_name, "weights.hdf5"))
-        strokes, strokes_dists, dists, word_wins, alph_wins = self.pred_model.predict("hello", save="epoch{e:0>2}.svg".format(e=epoch))
+        strokes, full, dists, word_wins, alph_wins = self.pred_model.predict("hello")
 
         with self.writer.as_default():
-            tf.summary.image("Strokes", strokes, step=epoch)
-            tf.summary.image("Strokes Distributions", strokes, step=epoch)
-            tf.summary.image("Distributions", strokes, step=epoch)
-            tf.summary.image("Word Windows", strokes, step=epoch)
-            tf.summary.image("Alphabet Windows", strokes, step=epoch)
+            tf.summary.image("Strokes", plot_to_image(strokes), step=epoch)
+            tf.summary.image("Strokes Distributions", plot_to_image(full), step=epoch)
+            tf.summary.image("Distributions", plot_to_image(dists), step=epoch)
+            tf.summary.image("Word Windows", plot_to_image(word_wins), step=epoch)
+            tf.summary.image("Alphabet Windows", plot_to_image(alph_wins), step=epoch)

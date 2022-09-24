@@ -1,6 +1,7 @@
 import scribemodel as scribe
 import tensorflow as tf
 import os
+import matplotlib.pyplot as plt
 
 base_path = "C:/Users/miron/Git/scribeAI"
 
@@ -33,9 +34,11 @@ model.compile(optimizer='adam',
               metrics=[['accuracy'], [None, None]],
               run_eagerly=True)
 model.evaluate(test_set.batch(batch_size=1).take(1), verbose=2)
-model.predict("freak")
-print("hela")
+pred_points, strokes, full, dists, word_wins, alph_wins = model.predict("freak")
+plt.show()
+
 model.load_weights(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"))
 model.evaluate(test_set.batch(batch_size=1).take(1), verbose=2)
 
-model.predict("freak")
+pred_points, strokes, full, dists, word_wins, alph_wins = model.predict("freak")
+plt.show()

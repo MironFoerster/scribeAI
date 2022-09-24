@@ -155,13 +155,16 @@ class AttentionLayer(tf.keras.layers.Layer):
         super().__init__()
         self.embedding_size = len_alphabet//2
         # len_alphabet + 1 because indices are always one higher
-        self.embedding = tf.keras.layers.Embedding(input_dim=len_alphabet+1, output_dim=self.embedding_size, mask_zero=True)
+        self.embedding = tf.keras.layers.Embedding(input_dim=len_alphabet+1, output_dim=self.embedding_size, mask_zero=True, name="embedding")
         self.contexting = tf.keras.layers.Bidirectional(
-            layer=tf.keras.layers.GRU(self.embedding_size, return_sequences=True)
+            layer=tf.keras.layers.GRU(self.embedding_size, return_sequences=True, name="context_gru")
         )
-        self.char_weight_layers = [tf.keras.layers.Dense(8, "relu"), tf.keras.layers.Dense(8, "relu"), tf.keras.layers.Dense(8, "relu"), tf.keras.layers.Dense(1, "sigmoid")]
-        self.conv_1 = tf.keras.layers.Conv1D(self.embedding_size, 2)
-        self.conv_2 = tf.keras.layers.Conv1D(self.embedding_size, 2)
+        self.char_weight_layers = [tf.keras.layers.Dense(8, "relu", name="char_weight_1"),
+                                   tf.keras.layers.Dense(8, "relu", name="char_weight_2"),
+                                   tf.keras.layers.Dense(8, "relu", name="char_weight_3"),
+                                   tf.keras.layers.Dense(1, "sigmoid", name="char_weight_final")]
+        self.conv_1 = tf.keras.layers.Conv1D(self.embedding_size, 2, name="conv1")
+        self.conv_2 = tf.keras.layers.Conv1D(self.embedding_size, 2, name="conv2")
 
     def call(self, inputs):
         lstm_outs = inputs[0]
