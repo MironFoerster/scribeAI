@@ -165,7 +165,7 @@ class Model(tf.keras.Model):
                 stroke_y = []
         plt.plot(stroke_x, stroke_y, 'b-', linewidth=2.0)
 
-        return plt.figure("dist"), plt.figure("full"), plt.figure("strokes")
+        return plt.figure("strokes"), plt.figure("full"), plt.figure("dist")
 
     def plot_windows(self, string_chars, window_embeddings, char_weights):
         plt.figure("word_wins")
@@ -276,12 +276,12 @@ class Model(tf.keras.Model):
 
         #create plots
         dist_img = self.img_from_mixture_dist(mixture, pred_points[:, 1:, :], img_size, dpu)
-        strokes, full, dists = self.plot_predictions(dist_img, pred_points, eos_probs=pred_params[:, :, -1], img_size=img_size)
+        strokes, full, dist = self.plot_predictions(dist_img, pred_points, eos_probs=pred_params[:, :, -1], img_size=img_size)
         word_wins, alph_wins = self.plot_windows(string_chars, window_embeddings, char_weights)
 
         # reset bias
         self.bias = 0
-        return pred_points, strokes, full, dists, word_wins, alph_wins
+        return pred_points
 
     def img_from_mixture_dist(self, mixture, pred_points, img_size, dpu):  # fixme: something is not working properly i puppose the offset stuff
         # pred_points.shape: [batchsize(1), timesteps, 3]
@@ -325,13 +325,14 @@ class Model(tf.keras.Model):
         return dist_img
 
 
-def plot_to_image(figure):
+def plot_to_image(figure_id):
+    plt.figure(figure_id)
     # Save the plot to a PNG in memory.
     buf = io.BytesIO()
     plt.savefig(buf, format='png')
     # Closing the figure prevents it from being displayed directly inside
     # the notebook.
-    plt.close(figure)
+    plt.close(figure_id)
     buf.seek(0)
     # Convert PNG buffer to TF image
     image = tf.image.decode_png(buf.getvalue(), channels=4)
@@ -421,11 +422,11 @@ class PredictCallback(tf.keras.callbacks.Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         self.pred_model.load_weights(os.path.join(self.base_path, "checkpoints", self.run_name, "weights.hdf5"))
-        pred_points, strokes, full, dists, word_wins, alph_wins = self.pred_model.predict("hello")
+        pred_points= self.pred_model.predict("hello")
 
         with self.writer.as_default():
-            tf.summary.image("Strokes", plot_to_image(strokes), step=epoch)
-            tf.summary.image("Strokes Distributions", plot_to_image(full), step=epoch)
-            tf.summary.image("Distributions", plot_to_image(dists), step=epoch)
-            tf.summary.image("Word Windows", plot_to_image(word_wins), step=epoch)
-            tf.summary.image("Alphabet Windows", plot_to_image(alph_wins), step=epoch)
+            tf.summary.image("Strokes", plot_to_image("strokes"), step=epoch)
+            tf.summary.image("Strokes Distributions", plot_to_image("full"), step=epoch)
+            tf.summary.image("Distributions", plot_to_image("dist"), step=epoch)
+            tf.summary.image("Word Windows", plot_to_image("word_wins"), step=epoch)
+            tf.summary.image("Alphabet Windows", plot_to_image("alph_wins"), step=epoch)
