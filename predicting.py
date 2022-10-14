@@ -3,11 +3,11 @@ import tensorflow as tf
 import os
 import matplotlib.pyplot as plt
 
-base_path = "C:/Users/miron/Git/scribeAI"
+base_path = "/home/miron/scribeAI"
 
-run_name = "fixed_win_local"
+run_name = "full_run"
 
-test_dir = "datasets/train"
+test_dir = "datasets/full_train"
 test_files = os.listdir(test_dir)
 test_set = None
 
@@ -40,5 +40,5 @@ model.evaluate(test_set.batch(batch_size=1).take(1), verbose=2)
 
 model.load_weights(os.path.join(base_path, "checkpoints", run_name, "weights.hdf5"))
 
-pred_points, strokes, full, dists, word_wins, alph_wins = model.predict("hello")
+pred_points = model.predict("hello")
 plt.show()

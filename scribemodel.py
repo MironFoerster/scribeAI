@@ -120,7 +120,7 @@ class Model(tf.keras.Model):
         return processed_output
 
     def is_predict_finished(self, win):
-        if self.time_idx > 100:
+        if self.time_idx > 200:
             return True
         else:
             return False
@@ -167,7 +167,15 @@ class Model(tf.keras.Model):
 
         return plt.figure("strokes"), plt.figure("full"), plt.figure("dist")
 
-    def plot_windows(self, string_chars, window_embeddings, char_weights):
+    def plot_windows(self, string_chars, window_embeddings, char_weights, embeddings):
+        plt.figure("embeddings")
+        #ax = plt.figure("word_wins").get_axes()[0]
+        plt.imshow(embeddings, aspect="auto", interpolation="none")
+        #ax.set_xticks(np.arange(len(string_chars)), list(string_chars))
+        plt.xticks(np.arange(len(self.alphabet)), list(self.alphabet))
+        plt.yticks(np.arange(embeddings.shape[0]))
+        plt.title("char embeddings")
+        
         plt.figure("word_wins")
         #ax = plt.figure("word_wins").get_axes()[0]
         plt.imshow(char_weights, aspect="auto", interpolation="none")
@@ -202,7 +210,7 @@ class Model(tf.keras.Model):
         plt.yticks(np.arange(window_embeddings.shape[1]))
         plt.title("window at alphabet")
 
-        return plt.figure("word_wins"), plt.figure("alph_wins")
+        return plt.figure("embeddings"), plt.figure("word_wins"), plt.figure("alph_wins")
 
     def predict(self, char_seq, primer=None, bias=1):  # todo implement priming
         self.time_idx = 0  # only temporary for check if predict is finished
@@ -271,13 +279,14 @@ class Model(tf.keras.Model):
         # create full sequence distributions from network output
         mixture, bernoulli = create_dists(pred_params)
 
-        img_size = (10, 10)
+        img_size = (1000, 100)
         dpu = 1  # dots per unit
 
         #create plots
         dist_img = self.img_from_mixture_dist(mixture, pred_points[:, 1:, :], img_size, dpu)
         strokes, full, dist = self.plot_predictions(dist_img, pred_points, eos_probs=pred_params[:, :, -1], img_size=img_size)
-        word_wins, alph_wins = self.plot_windows(string_chars, window_embeddings, char_weights)
+        embs = tf.transpose(tf.squeeze(self.window_layer.embedding(np.expand_dims(np.arange(len(self.alphabet)), axis=1)), axis=1))
+        embeddings, word_wins, alph_wins = self.plot_windows(string_chars, window_embeddings, char_weights, embs)
 
         # reset bias
         self.bias = 0
