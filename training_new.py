@@ -35,10 +35,10 @@ def datasets_from_files(files, directory):
 def bucket_sort(dataset):  # misuses bucketing as sort
     bucket_boundaries = list(range(2, 2001, 1))
     sorted_bucket_batches = dataset.bucket_by_sequence_length(element_length_func=lambda x, y: tf.shape(y)[0],
-                                                      bucket_boundaries=bucket_boundaries,
-                                                      bucket_batch_sizes=[100000] * (len(bucket_boundaries) + 1),
-                                                      pad_to_bucket_boundary=False,
-                                                      drop_remainder=False)
+                                                              bucket_boundaries=bucket_boundaries,
+                                                              bucket_batch_sizes=[100000] * (len(bucket_boundaries)+1),
+                                                              pad_to_bucket_boundary=False,
+                                                              drop_remainder=False)
     # sorted_bucket_batches: each batch contains all samples of a particular length, batches are sorted by this length
     sorted_set = sorted_bucket_batches.unbatch()
 
@@ -49,7 +49,6 @@ def pad_person_sets(person_sets):
     # finding out max sequence lengths
     bucket_seq_lens = []
     bucket_char_lens = []
-    c = 0
     for person_set in person_sets:
         person_numpy = list(person_set.as_numpy_iterator())
         for idx, sample in enumerate(reversed(person_numpy)):
@@ -67,7 +66,8 @@ def pad_person_sets(person_sets):
     # TODO: why does bucket_seq_lens have a zero in first place?
     # bec. 0 gets appended, then 1 padding thing gets appended..???
     bucket_char_lens = list(reversed(bucket_char_lens))
-    bucket_char_lens = [max(3, l) for l in bucket_char_lens] # Do that for conwolution in window? todo or simply handle less than three in window
+    bucket_char_lens = [max(3, ln) for ln in bucket_char_lens]  # Do that for conwolution in window?
+    # todo or simply handle less than three in window
 
     # padding according to prev findings
     pad_exp_dsets = []
@@ -82,16 +82,11 @@ def pad_person_sets(person_sets):
         exp_numpy = pad * pad_repeats + set_as_numpy
 
         def pad_numpy(x, seq_len, char_len):
-            #seq_rep = seq_len-x[0][0].shape[0]
             seq_rep = seq_len-len(x[0][0])
-            #char_rep = char_len-x[0][1].shape[0]
             char_rep = char_len-len(x[0][1])
             seq_pad = np.repeat(np.zeros((1, 3)), repeats=seq_rep, axis=0)
-            #seq_pad = seq_rep * [[0, 0, 0]]
             char_pad = np.repeat(np.zeros((1)), repeats=char_rep, axis=0)
-            #char_pad = char_rep * [0]
             return (np.concatenate([x[0][0], seq_pad]), np.concatenate([x[0][1], char_pad])), np.concatenate([x[1], seq_pad])
-            #return (x[0][0] + seq_pad, x[0][1] + char_pad), x[1] + seq_pad
 
         pad_exp_numpy = list(map(pad_numpy, exp_numpy, bucket_seq_lens, bucket_char_lens))
         pad_exp_ds = tf.data.Dataset.from_tensors(pad_exp_numpy[0])
@@ -104,19 +99,19 @@ def pad_person_sets(person_sets):
 
 def data_for_priming(datasets_list, batch_size):
     sorted_sets = []
-    for set in datasets_list:
-        sorted_sets.append(bucket_sort(set))
+    for st in datasets_list:
+        sorted_sets.append(bucket_sort(st))
 
     pad_set = tf.data.Dataset.from_tensor_slices(
         ((np.array([[[0, 0, 0]]], dtype=np.float32), np.array([[0]])), np.array([[[0, 0, 0]]], dtype=np.float32)))
-    for i in range(batch_size - (len(sorted_sets)%batch_size)):
+    for i in range(batch_size - (len(sorted_sets) % batch_size)):
         sorted_sets.append(pad_set)
     # sorted_sets: each set sorted by sequence-length
     set_batches = [sorted_sets[i:i+batch_size] for i in range(0, len(sorted_sets), batch_size)]
     # set_batches: list of lists of (batch_size) sets
     padded_set_batches = [pad_person_sets(set_batch) for set_batch in set_batches]
     # padded_chunked_sets: contains lists of batch_size sets which are padded according to the other elements in the lst
-    padded_sets = [set for chunk in padded_set_batches for set in chunk]
+    padded_sets = [st for chunk in padded_set_batches for st in chunk]
     ds_for_interleave = tf.data.Dataset.from_tensor_slices(padded_sets)
     interleaved_ds = ds_for_interleave.interleave(map_func=lambda x: x,
                                                   cycle_length=batch_size,
