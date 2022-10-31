@@ -43,6 +43,8 @@ class Model(tf.keras.Model):
         self.dense_outs = []
         for i in range(num_lstms):
             units = self.hidden_size
+            if i == 1:
+                units += len(self.alphabet)
             self.lstms.append(tf.keras.layers.LSTM(units=units,
                                                    return_sequences=True,
                                                    return_state=False,

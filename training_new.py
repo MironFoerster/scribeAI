@@ -6,10 +6,10 @@ import os
 from inspect import getsourcefile
 from os.path import abspath
 
-BASE_DIR, _ = os.path.split(abspath(getsourcefile(lambda:0)))
+BASE_DIR, _ = os.path.split(abspath(getsourcefile(lambda: 0)))
 
 
-run_name = "full_run"
+run_name = "week_run"
 
 
 train_dir = "datasets/full_train"
@@ -18,11 +18,12 @@ test_dir = "datasets/test"
 train_files = os.listdir(train_dir)
 test_files = os.listdir(test_dir)
 
-def datasets_from_files(files, dir):
+
+def datasets_from_files(files, directory):
     sets = []
 
     for file in files:
-        path = os.path.join(dir, file)
+        path = os.path.join(directory, file)
         train_data = tf.data.Dataset.load(path)
         train_data = train_data.map(lambda base: ((base["strokes"][:-1], base["chars"]), base["strokes"][1:]))
         sets.append(train_data)
@@ -114,20 +115,19 @@ def data_for_priming(datasets_list, batch_size):
     set_batches = [sorted_sets[i:i+batch_size] for i in range(0, len(sorted_sets), batch_size)]
     # set_batches: list of lists of (batch_size) sets
     padded_set_batches = [pad_person_sets(set_batch) for set_batch in set_batches]
-    # padded_set_batches: list of lists of (batch_size) sets which are padded according to the other elements in the list
-    batched_set_batches = []
-    for set_batch in padded_set_batches:
-    	ds_for_interleave = tf.data.Dataset.from_tensor_slices(set_batch)
-    	interleaved_set_batch = ds_for_interleave.interleave(map_func=lambda x: x,
+    # padded_chunked_sets: contains lists of batch_size sets which are padded according to the other elements in the lst
+    padded_sets = [set for chunk in padded_set_batches for set in chunk]
+    ds_for_interleave = tf.data.Dataset.from_tensor_slices(padded_sets)
+    interleaved_ds = ds_for_interleave.interleave(map_func=lambda x: x,
                                                   cycle_length=batch_size,
-                                                  block_length=1)
-    	batched_set_batch = interleaved_set_batch.batch(batch_size, drop_remainder=True)
-    	batched_set_batches.append(batched_set_batch)
+                                                  block_length=1
+                                                  )
+    batched = interleaved_ds.batch(batch_size, drop_remainder=True)
 
-    return batched_set_batches
+    return batched
+
 
 train_sets = datasets_from_files(train_files, train_dir)
-
 
 test_sets = datasets_from_files(test_files, test_dir)
 
@@ -135,7 +135,7 @@ train_sets = train_sets + test_sets
 
 batch_size = 17  # teiler von 238 (236 ds)
 
-train_for_priming = data_for_priming(train_sets, batch_size)  # len 14
+train_for_priming = data_for_priming(train_sets, batch_size)  # (len 14)
 test_for_priming = data_for_priming(test_sets[:16], batch_size)[0]
 
 model = scribe.Model()
@@ -166,20 +166,6 @@ if os.path.isfile(os.path.join(BASE_DIR, "checkpoints", run_name, "weights.hdf5"
     model.evaluate(test_for_priming.unbatch().batch(batch_size=batch_size, drop_remainder=True).take(1), verbose=2)
 
     model.load_weights(os.path.join(BASE_DIR, "checkpoints", run_name, "weights.hdf5"))
-try:
-	with open("./skipto", "r") as f:
-		skip = int(f.read())
-except:
-	print("skip0")
-	skip = 0
-try:
-	while True:
-		for idx, batched_set_batch in enumerate(train_for_priming):
-			if skip > 0:
-				skip -= 1
-				continue
-			model.fit(batched_set_batch, validation_data=test_for_priming, epochs=1, callbacks=[tensorboard_callback, model_checkpoint_callback, predict_callback], verbose=1)
-except KeyboardInterrupt:
-	f = open("./skipto", "w")
-	f.write(str(idx+1))
-	f.close()
+
+model.fit(train_for_priming, validation_data=test_for_priming, epochs=100, callbacks=[tensorboard_callback, model_checkpoint_callback, predict_callback], verbose=1)
+# validation_data=test_batched,
