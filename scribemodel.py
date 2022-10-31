@@ -46,6 +46,7 @@ class Model(tf.keras.Model):
             if i == 1:
                 units += len(self.alphabet)
             self.lstms.append(tf.keras.layers.LSTM(units=units,
+                                                   recurrent_activation="relu",
                                                    return_sequences=True,
                                                    return_state=False,
                                                    stateful=True,
